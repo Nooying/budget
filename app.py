@@ -8,9 +8,18 @@ HTML_PATH = os.path.join(BASE_DIR, 'public', 'index.html')
 
 with open(HTML_PATH, 'rb') as f:
     HTML_BYTES = f.read()
-# Strip BOM if present
 if HTML_BYTES.startswith(b'\xef\xbb\xbf'):
     HTML_BYTES = HTML_BYTES[3:]
+
+FILE_SIZE = len(HTML_BYTES)
+
+@app.route('/test')
+def test():
+    return Response(
+        f'<html><body><h1>Hello!</h1><p>File size: {FILE_SIZE} bytes</p></body></html>',
+        status=200,
+        headers={'Content-Type': 'text/html; charset=utf-8'}
+    )
 
 @app.route('/')
 @app.route('/index.html')
