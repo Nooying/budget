@@ -80,17 +80,24 @@ const EXP_CATS=[
   'อื่นๆ',
 ];
 
-const REV_BUDGET=[5000000,5200000,5700000,6000000,6200000,6500000,6800000,7000000,6700000,6500000,6800000,8500000];
-const REV_ACTUAL=[4850000,5340000,5650000,6100000,6350000,6480000,6900000,7100000,6650000,6600000,6750000,8750000];
-const EXP_BUDGET=[2350000,2380000,2400000,2420000,2450000,2550000,2600000,2620000,2580000,2550000,2600000,3200000];
-const EXP_ACTUAL=[2280000,2410000,2390000,2440000,2480000,2560000,2630000,2650000,2590000,2560000,2620000,3250000];
-
-const MONTHLY_DATA=Array.from({length:12},(_,i)=>({
-  month:i+1,label:MONTHS_EN[i],
-  rev_budget:REV_BUDGET[i],rev_actual:REV_ACTUAL[i],
-  exp_budget:EXP_BUDGET[i],exp_actual:EXP_ACTUAL[i],
-  profit_budget:REV_BUDGET[i]-EXP_BUDGET[i],profit_actual:REV_ACTUAL[i]-EXP_ACTUAL[i],
-}));
+/* ====== MONTHLY_DATA — อ่านจาก localStorage จริง ====== */
+function buildMonthlyData(){
+  const revBudgets=ls.get('rev_budgets',[]);
+  const expBudgets=ls.get('exp_budgets',[]);
+  const actuals=ls.get('actual_records',[]);
+  const curYear=new Date().getFullYear().toString();
+  return Array.from({length:12},(_,i)=>{
+    const m=i+1;
+    const mm=String(m).padStart(2,'0');
+    const prefix=`${curYear}-${mm}`;
+    const rev_budget=revBudgets.filter(r=>r.month===m||r.date?.startsWith(prefix)).reduce((s,r)=>s+(+r.amount||0),0);
+    const exp_budget=expBudgets.filter(r=>r.month===m||r.date?.startsWith(prefix)).reduce((s,r)=>s+(+r.amount||0),0);
+    const rev_actual=actuals.filter(r=>r.type==='revenue'&&r.date?.startsWith(prefix)).reduce((s,r)=>s+(+r.amount||0),0);
+    const exp_actual=actuals.filter(r=>r.type==='expense'&&r.date?.startsWith(prefix)).reduce((s,r)=>s+(+r.amount||0),0);
+    return{month:m,label:MONTHS_EN[i],rev_budget,rev_actual,exp_budget,exp_actual,profit_budget:rev_budget-exp_budget,profit_actual:rev_actual-exp_actual};
+  });
+}
+const MONTHLY_DATA=buildMonthlyData();
 
 const USERS_DB=[
   {id:1,username:'admin',password:'password123',name:'System Admin',role:'admin',dept:'Executive',email:'admin@company.com'},
@@ -282,13 +289,14 @@ function LoginPage({onLogin}){
 
 /* ====== DASHBOARD ====== */
 function Dashboard(){
+  const md=buildMonthlyData();
   const totals={
-    rev_budget:REV_BUDGET.reduce((s,v)=>s+v,0),rev_actual:REV_ACTUAL.reduce((s,v)=>s+v,0),
-    exp_budget:EXP_BUDGET.reduce((s,v)=>s+v,0),exp_actual:EXP_ACTUAL.reduce((s,v)=>s+v,0),
+    rev_budget:md.reduce((s,m)=>s+m.rev_budget,0),rev_actual:md.reduce((s,m)=>s+m.rev_actual,0),
+    exp_budget:md.reduce((s,m)=>s+m.exp_budget,0),exp_actual:md.reduce((s,m)=>s+m.exp_actual,0),
   };
   totals.profit_budget=totals.rev_budget-totals.exp_budget;
   totals.profit_actual=totals.rev_actual-totals.exp_actual;
-  totals.rev_ach=totals.rev_actual/totals.rev_budget*100;
+  totals.rev_ach=totals.rev_budget>0?totals.rev_actual/totals.rev_budget*100:0;
 
   const loans=ls.get('loan_records',[]);
   const totalLoanOut=loans.filter(l=>l.txn_type==='draw').reduce((s,l)=>s+Number(l.amount),0);
@@ -327,19 +335,19 @@ function Dashboard(){
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
         <div className="card">
           <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>Revenue Trend — Budget vs Actual</h3>
-          <LineBarChart data={MONTHLY_DATA} type="line" keys={['rev_budget','rev_actual']} colors={['#c4b5fd','#7c3aed']} labels={['Budget','Actual']}/>
+          <LineBarChart data={md} type="line" keys={['rev_budget','rev_actual']} colors={['#c4b5fd','#7c3aed']} labels={['Budget','Actual']}/>
         </div>
         <div className="card">
           <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>Expense Trend — Budget vs Actual</h3>
-          <LineBarChart data={MONTHLY_DATA} type="line" keys={['exp_budget','exp_actual']} colors={['#fca5a5','#dc2626']} labels={['Budget','Actual']}/>
+          <LineBarChart data={md} type="line" keys={['exp_budget','exp_actual']} colors={['#fca5a5','#dc2626']} labels={['Budget','Actual']}/>
         </div>
         <div className="card">
           <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>Profit Trend</h3>
-          <LineBarChart data={MONTHLY_DATA} type="line" keys={['profit_budget','profit_actual']} colors={['#a78bfa','#0891b2']} labels={['Budget','Actual']}/>
+          <LineBarChart data={md} type="line" keys={['profit_budget','profit_actual']} colors={['#a78bfa','#0891b2']} labels={['Budget','Actual']}/>
         </div>
         <div className="card">
           <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>Budget vs Actual Monthly</h3>
-          <LineBarChart data={MONTHLY_DATA} type="bar" keys={['rev_budget','rev_actual']} colors={['#c4b5fd','#7c3aed']} labels={['Budget','Actual']}/>
+          <LineBarChart data={md} type="bar" keys={['rev_budget','rev_actual']} colors={['#c4b5fd','#7c3aed']} labels={['Budget','Actual']}/>
         </div>
       </div>
 
@@ -1564,8 +1572,9 @@ function DailyCashFlow(){
 function Comparison(){
   const [monthFilter,setMonthFilter]=useState('');
   const [typeFilter,setTypeFilter]=useState('');
+  const monthlyData=buildMonthlyData();
 
-  const compData=MONTHLY_DATA.flatMap(m=>[
+  const compData=monthlyData.flatMap(m=>[
     {month:m.month,label:MONTHS_EN[m.month-1],dept:'Sales',cat:'Product Sales',type:'revenue',
      budget:m.rev_budget,actual:m.rev_actual,variance:m.rev_actual-m.rev_budget,
      pct:((m.rev_actual-m.rev_budget)/m.rev_budget*100).toFixed(1),
@@ -1608,11 +1617,7 @@ function Comparison(){
       </div>
       <div className="card" style={{marginBottom:16}}>
         <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>Budget vs Actual by Month</h3>
-        <LineBarChart data={Object.values(MONTHLY_DATA.reduce((acc,m)=>{
-          if(!acc[m.month])acc[m.month]={label:MONTHS_EN[m.month-1],rev_budget:0,rev_actual:0,exp_budget:0,exp_actual:0};
-          acc[m.month].rev_budget+=m.rev_budget;acc[m.month].rev_actual+=m.rev_actual;acc[m.month].exp_budget+=m.exp_budget;acc[m.month].exp_actual+=m.exp_actual;
-          return acc;
-        },{}))} type="bar" keys={['rev_budget','rev_actual','exp_budget','exp_actual']} colors={['#c4b5fd','#7c3aed','#fca5a5','#dc2626']} labels={['Rev Budget','Rev Actual','Exp Budget','Exp Actual']}/>
+        <LineBarChart data={monthlyData} type="bar" keys={['rev_budget','rev_actual','exp_budget','exp_actual']} colors={['#c4b5fd','#7c3aed','#fca5a5','#dc2626']} labels={['Rev Budget','Rev Actual','Exp Budget','Exp Actual']}/>
       </div>
       <div className="card" style={{overflowX:'auto'}}>
         <table>
@@ -1642,6 +1647,7 @@ function Reports(){
   const [month,setMonth]=useState(1);
   const [quarter,setQuarter]=useState(1);
   const qMonths={1:[1,2,3],2:[4,5,6],3:[7,8,9],4:[10,11,12]};
+  const MONTHLY_DATA=buildMonthlyData();
   const getMonths=()=>reportType==='monthly'?MONTHLY_DATA.filter(m=>m.month===month):reportType==='quarterly'?MONTHLY_DATA.filter(m=>qMonths[quarter].includes(m.month)):MONTHLY_DATA;
   const filtered=getMonths();
   const totals=filtered.reduce((a,m)=>({rb:a.rb+m.rev_budget,ra:a.ra+m.rev_actual,eb:a.eb+m.exp_budget,ea:a.ea+m.exp_actual}),{rb:0,ra:0,eb:0,ea:0});
