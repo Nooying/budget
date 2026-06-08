@@ -394,8 +394,56 @@ function Dashboard(){
   );
 }
 
+/* ====== SAMPLE CSV DATA ====== */
+const SAMPLE_CSV={
+  revenue:[
+    ['แผนก','ประเภทรายรับ','ธนาคาร/บัญชี','เดือน','ปี','จำนวนเงิน','หมายเหตุ'],
+    ['Sales','รับลูกหนี้ในประเทศ - โอน','ธ.กสิกรไทย',1,2026,500000,'ลูกค้า A'],
+    ['Sales','รับลูกหนี้ในประเทศ - เช็ค','ธ.กรุงเทพ',1,2026,300000,'ลูกค้า B'],
+    ['Sales','รับลูกหนี้ต่างประเทศ','ธ.กรุงไทย',2,2026,800000,'Export'],
+    ['Finance','รับเงินกู้','ธ.ออมสิน',2,2026,1000000,'เงินกู้ระยะสั้น'],
+    ['Finance','รับเงินปันผล','ธ.กสิกรไทย',3,2026,200000,''],
+    ['Sales','รับอื่นๆ','ธ.กรุงเทพ',3,2026,50000,'รายได้อื่น'],
+  ],
+  expense:[
+    ['แผนก','ประเภทรายจ่าย','Vendor/เจ้าหนี้','เดือน','ปี','จำนวนเงิน','หมายเหตุ'],
+    ['Finance','เจ้าหนี้','บริษัท ABC จำกัด',1,2026,200000,''],
+    ['HR','เงินเดือนพนักงาน','',1,2026,500000,'เงินเดือนมกราคม'],
+    ['Finance','คืนเงินกู้','ธ.ออมสิน',2,2026,100000,'งวดที่ 1'],
+    ['Finance','ภาษี','กรมสรรพากร',2,2026,80000,'ภาษีมูลค่าเพิ่ม'],
+    ['Admin','ค่าน้ำ-ค่าไฟฟ้า','การไฟฟ้า',2,2026,15000,''],
+    ['HR','ประกันสังคม','สำนักงานประกันสังคม',3,2026,25000,''],
+    ['Finance','เงินปันผล','ผู้ถือหุ้น',3,2026,300000,''],
+  ],
+  actual_revenue:[
+    ['วันที่','แผนก','ประเภทรายรับ','จำนวนเงิน','อ้างอิง','รายละเอียด'],
+    ['2026-01-15','Sales','รับลูกหนี้ในประเทศ - โอน',500000,'INV001','รับเงินจากลูกค้า A'],
+    ['2026-01-20','Sales','รับลูกหนี้ในประเทศ - เช็ค',300000,'INV002','รับเงินจากลูกค้า B'],
+    ['2026-02-10','Sales','รับลูกหนี้ต่างประเทศ',800000,'INV003','Export payment'],
+    ['2026-02-15','Finance','รับเงินกู้',1000000,'LOAN001','เงินกู้ระยะสั้น'],
+  ],
+  actual_expense:[
+    ['วันที่','แผนก','ประเภทรายจ่าย','จำนวนเงิน','อ้างอิง','รายละเอียด','Vendor/เจ้าหนี้','ธนาคาร'],
+    ['2026-01-10','Finance','เจ้าหนี้',200000,'PO001','จ่ายค่าสินค้า','บริษัท ABC จำกัด','ธ.กสิกรไทย'],
+    ['2026-01-31','HR','เงินเดือนพนักงาน',500000,'PAY001','เงินเดือนมกราคม','','ธ.กรุงเทพ'],
+    ['2026-02-05','Finance','คืนเงินกู้',100000,'LOAN001','ชำระงวดที่ 1','ธ.ออมสิน','ธ.ออมสิน'],
+    ['2026-02-15','Finance','ภาษี',80000,'TAX001','ภาษีมูลค่าเพิ่ม','กรมสรรพากร','ธ.กรุงเทพ'],
+  ],
+};
+
+function downloadSampleCSV(type){
+  const rows=SAMPLE_CSV[type];
+  const csv=rows.map(r=>r.map(c=>`"${String(c||'').replace(/"/g,'""')}"`).join(',')).join('\n');
+  const b=new Blob(['﻿'+csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(b);
+  const names={revenue:'ตัวอย่าง_งบรายรับ',expense:'ตัวอย่าง_งบรายจ่าย',actual_revenue:'ตัวอย่าง_บันทึกผลจริง_รายรับ',actual_expense:'ตัวอย่าง_บันทึกผลจริง_รายจ่าย'};
+  a.download=`${names[type]}.csv`;
+  a.click();URL.revokeObjectURL(a.href);
+}
+
 /* ====== SHARED: ImportBar ====== */
-function ImportBar({onImport,onExport,onClearAll,count,label}){
+function ImportBar({onImport,onExport,onClearAll,count,label,sampleType}){
   const [mode,setMode]=useState('append'); // append | replace
   return(
     <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
@@ -414,6 +462,10 @@ function ImportBar({onImport,onExport,onClearAll,count,label}){
           importCSVFile(file,rows=>onImport(rows,mode));e.target.value='';
         }}/>
       </label>
+      {sampleType&&<button className="btn btn-secondary" style={{fontSize:13,background:'#f0fdf4',color:'#16a34a',border:'1px solid #86efac'}}
+        onClick={()=>downloadSampleCSV(sampleType)}>
+        📄 ดาวน์โหลด CSV ตัวอย่าง
+      </button>}
       <button className="btn btn-secondary" style={{fontSize:13}} onClick={onExport}>📤 Export Excel</button>
       {count>0&&<button className="btn" style={{fontSize:13,background:'#fee2e2',color:'#991b1b',border:'1px solid #fca5a5'}}
         onClick={()=>{if(window.confirm(`ลบ${label}ทั้งหมด ${count} รายการ?`))onClearAll();}}>
@@ -481,7 +533,7 @@ function RevenueBudget(){
           <h1 style={{fontSize:22,fontWeight:800,color:'#2e1065',margin:0}}>💰 งบประมาณรายรับ</h1>
           <p style={{color:'#64748b',fontSize:13,margin:0}}>ประมาณการรายรับ — ลูกหนี้ / เงินกู้ / ปันผล / อื่นๆ</p>
         </div>
-        <ImportBar onImport={doImport} onExport={doExport} onClearAll={()=>persist([])} count={budgets.length} label="งบรายรับ"/>
+        <ImportBar onImport={doImport} onExport={doExport} onClearAll={()=>persist([])} count={budgets.length} label="งบรายรับ" sampleType="revenue"/>
       </div>
 
       {/* CSV Format hint */}
@@ -629,7 +681,7 @@ function ExpenseBudget(){
           <h1 style={{fontSize:22,fontWeight:800,color:'#2e1065',margin:0}}>📋 งบประมาณรายจ่าย</h1>
           <p style={{color:'#64748b',fontSize:13,margin:0}}>เจ้าหนี้ / คืนเงินกู้ / ภาษี / เงินเดือน / ค่าใช้จ่ายอื่นๆ</p>
         </div>
-        <ImportBar onImport={doImport} onExport={doExport} onClearAll={()=>persist([])} count={budgets.length} label="งบรายจ่าย"/>
+        <ImportBar onImport={doImport} onExport={doExport} onClearAll={()=>persist([])} count={budgets.length} label="งบรายจ่าย" sampleType="expense"/>
       </div>
 
       {/* CSV Format hint */}
@@ -1037,7 +1089,7 @@ function ActualEntry(){
           <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} style={{width:120}}>
             <option value="">ทุกเดือน</option>{MONTHS_TH.map((m,i)=><option key={i+1} value={i+1}>{m}</option>)}
           </select>
-          <ImportBar onImport={doImport} onExport={doExport} onClearAll={()=>persist(records.filter(r=>r.type!==tab||r.source==='loan_auto'))} count={records.filter(r=>r.type===tab&&r.source!=='loan_auto').length} label={`ผลจริง${tab==='revenue'?'รายรับ':'รายจ่าย'}`}/>
+          <ImportBar onImport={doImport} onExport={doExport} onClearAll={()=>persist(records.filter(r=>r.type!==tab||r.source==='loan_auto'))} count={records.filter(r=>r.type===tab&&r.source!=='loan_auto').length} label={`ผลจริง${tab==='revenue'?'รายรับ':'รายจ่าย'}`} sampleType={tab==='revenue'?'actual_revenue':'actual_expense'}/>
         </div>
       </div>
 
