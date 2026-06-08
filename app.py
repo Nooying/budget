@@ -1,23 +1,19 @@
-from flask import Flask, Response
+from flask import Flask, send_file, make_response
 import os
 
 app = Flask(__name__)
 PORT = int(os.environ.get('PORT', 8080))
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 @app.route('/')
+@app.route('/index.html')
 def index():
-    with open(os.path.join('public', 'index.html'), 'r', encoding='utf-8') as f:
-        content = f.read()
-    return Response(content, mimetype='text/html; charset=utf-8')
-
-@app.route('/<path:filename>')
-def static_files(filename):
-    filepath = os.path.join('public', filename)
-    if os.path.exists(filepath):
-        with open(filepath, 'r', encoding='utf-8') as f:
-            content = f.read()
-        return Response(content, mimetype='text/html; charset=utf-8')
-    return 'Not found', 404
+    path = os.path.join(BASE_DIR, 'public', 'index.html')
+    response = make_response(send_file(path, mimetype='text/html'))
+    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=PORT, debug=False)
