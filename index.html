@@ -80,24 +80,6 @@ const EXP_CATS=[
   'อื่นๆ',
 ];
 
-/* ====== MONTHLY_DATA — อ่านจาก localStorage จริง ====== */
-function buildMonthlyData(){
-  const revBudgets=ls.get('rev_budgets',[]);
-  const expBudgets=ls.get('exp_budgets',[]);
-  const actuals=ls.get('actual_records',[]);
-  const curYear=new Date().getFullYear().toString();
-  return Array.from({length:12},(_,i)=>{
-    const m=i+1;
-    const mm=String(m).padStart(2,'0');
-    const prefix=`${curYear}-${mm}`;
-    const rev_budget=revBudgets.filter(r=>r.month===m||r.date?.startsWith(prefix)).reduce((s,r)=>s+(+r.amount||0),0);
-    const exp_budget=expBudgets.filter(r=>r.month===m||r.date?.startsWith(prefix)).reduce((s,r)=>s+(+r.amount||0),0);
-    const rev_actual=actuals.filter(r=>r.type==='revenue'&&r.date?.startsWith(prefix)).reduce((s,r)=>s+(+r.amount||0),0);
-    const exp_actual=actuals.filter(r=>r.type==='expense'&&r.date?.startsWith(prefix)).reduce((s,r)=>s+(+r.amount||0),0);
-    return{month:m,label:MONTHS_EN[i],rev_budget,rev_actual,exp_budget,exp_actual,profit_budget:rev_budget-exp_budget,profit_actual:rev_actual-exp_actual};
-  });
-}
-const MONTHLY_DATA=buildMonthlyData();
 
 const USERS_DB=[
   {id:1,username:'admin',password:'password123',name:'System Admin',role:'admin',dept:'Executive',email:'admin@company.com'},
@@ -119,6 +101,24 @@ const ls={
   get:(k,def)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):def;}catch{return def;}},
   set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}},
 };
+
+/* ====== MONTHLY_DATA — อ่านจาก localStorage จริง ====== */
+function buildMonthlyData(){
+  const revBudgets=ls.get('rev_budgets',[]);
+  const expBudgets=ls.get('exp_budgets',[]);
+  const actuals=ls.get('actual_records',[]);
+  const curYear=new Date().getFullYear().toString();
+  return Array.from({length:12},(_,i)=>{
+    const m=i+1;
+    const mm=String(m).padStart(2,'0');
+    const prefix=`${curYear}-${mm}`;
+    const rev_budget=revBudgets.filter(r=>r.month===m||r.date?.startsWith(prefix)).reduce((s,r)=>s+(+r.amount||0),0);
+    const exp_budget=expBudgets.filter(r=>r.month===m||r.date?.startsWith(prefix)).reduce((s,r)=>s+(+r.amount||0),0);
+    const rev_actual=actuals.filter(r=>r.type==='revenue'&&r.date?.startsWith(prefix)).reduce((s,r)=>s+(+r.amount||0),0);
+    const exp_actual=actuals.filter(r=>r.type==='expense'&&r.date?.startsWith(prefix)).reduce((s,r)=>s+(+r.amount||0),0);
+    return{month:m,label:MONTHS_EN[i],rev_budget,rev_actual,exp_budget,exp_actual,profit_budget:rev_budget-exp_budget,profit_actual:rev_actual-exp_actual};
+  });
+}
 
 /* ====== EXCEL EXPORT ====== */
 function exportExcel(sheets,filename='export.xlsx'){
