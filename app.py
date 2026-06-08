@@ -1,19 +1,29 @@
-from flask import Flask, send_file, make_response
+from flask import Flask, Response
 import os
 
 app = Flask(__name__)
-PORT = int(os.environ.get('PORT', 8080))
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+HTML_PATH = os.path.join(BASE_DIR, 'public', 'index.html')
+
+with open(HTML_PATH, 'rb') as f:
+    HTML_BYTES = f.read()
+# Strip BOM if present
+if HTML_BYTES.startswith(b'\xef\xbb\xbf'):
+    HTML_BYTES = HTML_BYTES[3:]
 
 @app.route('/')
 @app.route('/index.html')
 def index():
-    path = os.path.join(BASE_DIR, 'public', 'index.html')
-    response = make_response(send_file(path, mimetype='text/html'))
-    response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
-    response.headers['Pragma'] = 'no-cache'
-    response.headers['Expires'] = '0'
-    return response
+    return Response(
+        HTML_BYTES,
+        status=200,
+        headers={
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+        }
+    )
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=PORT, debug=False)
+    port = int(os.environ.get('PORT', 8080))
+    app.run(host='0.0.0.0', port=port, debug=False)
