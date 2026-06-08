@@ -12,11 +12,17 @@ if HTML_BYTES.startswith(b'\xef\xbb\xbf'):
     HTML_BYTES = HTML_BYTES[3:]
 
 FILE_SIZE = len(HTML_BYTES)
+FIRST_200 = HTML_BYTES[:200].decode('utf-8', errors='replace')
 
-@app.route('/test')
-def test():
+@app.route('/debug')
+def debug():
     return Response(
-        f'<html><body><h1>Hello!</h1><p>File size: {FILE_SIZE} bytes</p></body></html>',
+        f'<html><body><h2>Debug Info</h2>'
+        f'<p>File path: {HTML_PATH}</p>'
+        f'<p>File size: {FILE_SIZE} bytes</p>'
+        f'<p>First 200 chars:</p>'
+        f'<pre>{FIRST_200}</pre>'
+        f'</body></html>',
         status=200,
         headers={'Content-Type': 'text/html; charset=utf-8'}
     )
@@ -30,6 +36,7 @@ def index():
         headers={
             'Content-Type': 'text/html; charset=utf-8',
             'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'X-Content-Type-Options': 'nosniff',
         }
     )
 
