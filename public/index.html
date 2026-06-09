@@ -1886,25 +1886,22 @@ function exportAllData(){
     alert('ยังไม่มีข้อมูลในระบบ กรุณากรอกข้อมูลก่อนส่งออกครับ');
     return;
   }
-  // ดึง source code ของแอปทั้งหมด แล้วฝัง snapshot ไว้ก่อน </head>
   const dataJSON=JSON.stringify(snapshot).replace(/</g,'\\u003c').replace(/>/g,'\\u003e');
-  const preloadScript=`<script>
-(function(){
-  var snap=${dataJSON};
-  Object.entries(snap).forEach(function(e){try{localStorage.setItem(e[0],e[1]);}catch(ex){}});
-})();
-<\\/script>`;
-  // ดึง HTML ของแอปปัจจุบัน แทรก preload script ก่อนปิด </head>
-  const currentHTML=document.documentElement.outerHTML;
-  const html=currentHTML.replace('</head>',preloadScript+'</head>');
-  const blob=new Blob([html],{type:'text/html;charset=utf-8'});
-  const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);
-  const d=new Date();
-  const fname=`budget_share_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.html`;
-  a.download=fname;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  const preloadScript=`<script>(function(){var s=${dataJSON};Object.entries(s).forEach(function(e){try{localStorage.setItem(e[0],e[1]);}catch(x){}});})();<\\/script>`;
+
+  // fetch HTML ต้นฉบับจาก server แล้วฝังข้อมูลเข้าไป
+  fetch(window.location.origin+'/')
+    .then(r=>r.text())
+    .then(html=>{
+      const output=html.replace('</head>',preloadScript+'</head>');
+      const blob=new Blob([output],{type:'text/html;charset=utf-8'});
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      const d=new Date();
+      const fname=`budget_share_${d.getFullYear()}${String(d.getMonth()+1).padStart(2,'0')}${String(d.getDate()).padStart(2,'0')}.html`;
+      a.download=fname;a.click();URL.revokeObjectURL(a.href);
+    })
+    .catch(()=>alert('เกิดข้อผิดพลาด ลองใหม่อีกครั้งครับ'));
 }
 
 /* ====== APP ====== */
