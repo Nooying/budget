@@ -115,30 +115,19 @@ const ls={
 };
 
 /* ====== MONTHLY_DATA — อ่านจาก localStorage จริง ====== */
-// Helper: check if a record belongs to a given year+month
-// Supports both: r.date='YYYY-MM-DD' and r.month/r.year separate fields
-function recordMatchesYM(r,yr,m){
-  if(r.date) return r.date.startsWith(`${yr}-${String(m).padStart(2,'0')}`);
-  return String(r.year||new Date().getFullYear())===String(yr)&&+r.month===m;
-}
-
 function buildMonthlyData(yearParam){
-  const revBudgets=ls.get('rev_budgets',[]);
-  const expBudgets=ls.get('exp_budgets',[]);
-  const actuals=ls.get('actual_records',[]);
+  // Budget: ใช้ cf_budgets (Budget CF) เป็นแหล่งเดียว
   const cfBudgets=ls.get('cf_budgets',[]);
+  const actuals=ls.get('actual_records',[]);
   const dailyCF=ls.get('daily_cashflow',[]);
   const yr=(yearParam||new Date().getFullYear()).toString();
   return Array.from({length:12},(_,i)=>{
     const m=i+1;
     const prefix=`${yr}-${String(m).padStart(2,'0')}`;
-    // งบรายรับ (รองรับทั้ง date และ month/year)
-    const rev_budget=revBudgets.filter(r=>recordMatchesYM(r,yr,m)).reduce((s,r)=>s+(+r.amount||0),0)
-      +cfBudgets.filter(r=>r.date?.startsWith(prefix)&&r.flow==='in').reduce((s,r)=>s+(+r.amount||0),0);
-    // งบรายจ่าย (รองรับทั้ง date และ month/year)
-    const exp_budget=expBudgets.filter(r=>recordMatchesYM(r,yr,m)).reduce((s,r)=>s+(+r.amount||0),0)
-      +cfBudgets.filter(r=>r.date?.startsWith(prefix)&&r.flow==='out').reduce((s,r)=>s+(+r.amount||0),0);
-    // ผลจริง + daily cashflow actual
+    // Budget มาจาก Budget CF เท่านั้น
+    const rev_budget=cfBudgets.filter(r=>r.date?.startsWith(prefix)&&r.flow==='in').reduce((s,r)=>s+(+r.amount||0),0);
+    const exp_budget=cfBudgets.filter(r=>r.date?.startsWith(prefix)&&r.flow==='out').reduce((s,r)=>s+(+r.amount||0),0);
+    // Actual มาจาก บันทึกผลจริง + Cash Flow รายวัน
     const rev_actual=actuals.filter(r=>r.type==='revenue'&&r.date?.startsWith(prefix)).reduce((s,r)=>s+(+r.amount||0),0)
       +dailyCF.filter(r=>r.date?.startsWith(prefix)&&r.flow==='in'&&r.entry_type==='actual').reduce((s,r)=>s+(+r.amount||0),0);
     const exp_actual=actuals.filter(r=>r.type==='expense'&&r.date?.startsWith(prefix)).reduce((s,r)=>s+(+r.amount||0),0)
@@ -1773,53 +1762,45 @@ function DailyCashFlow(){
           {/* ===== DAILY VIEW ===== */}
           {budViewTab==='daily'&&cfBudgetMonths.map(m=>{
             const mIdx=parseInt(m.month.slice(5),10)-1;
-            const mLabel=`${MONTHS_TH[mIdx]} ${m.month.slice(0,4)}`;
+            const mLabel=MONTHS_TH[mIdx]+' '+m.month.slice(0,4);
             const isEditingOpen=editOpenMonth===m.month;
+            const DAY_NAMES=['อา','จ','อ','พ','พฤ','ศ','ส'];
             return(
               <div key={m.month} className="card" style={{marginBottom:16,overflowX:'auto'}}>
-                {/* Month Header with opening balance */}
+                {/* Month Header */}
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,flexWrap:'wrap',gap:8}}>
                   <div>
                     <h3 style={{fontWeight:800,fontSize:15,color:'#4c1d95',margin:0}}>{mLabel}</h3>
                     <div style={{fontSize:12,color:'#64748b',marginTop:2}}>{m.items.length} รายการ</div>
                   </div>
-                  {/* Opening Balance Editor */}
-                  <div style={{display:'flex',alignItems:'center',gap:8,background:'#f0f0ff',borderRadius:10,padding:'8px 14px',border:'1px solid #c7d2fe'}}>
+                  {/* Opening Balance */}
+                  <div style={{display:'flex',alignItems:'center',gap:8,background:'#f0f0ff',borderRadius:10,padding:'8px 14px',border:'1px solid #c7d2fe',flexWrap:'wrap'}}>
                     <span style={{fontSize:12,color:'#3730a3',fontWeight:600}}>📂 ยอดยกมาต้นเดือน:</span>
                     {isEditingOpen?(
-                      <>
+                      <React.Fragment>
                         <input type="number" value={openInput} onChange={e=>setOpenInput(e.target.value)}
-                          style={{width:140,fontSize:13,padding:'4px 8px',borderRadius:6,border:'1px solid #a5b4fc'}}
-                          autoFocus/>
+                          style={{width:140,fontSize:13,padding:'4px 8px',borderRadius:6,border:'1px solid #a5b4fc'}}/>
                         <button onClick={()=>{saveCfMonthOpen(m.month,+openInput||0);setEditOpenMonth(null);}}
                           style={{fontSize:12,padding:'4px 10px',borderRadius:6,background:'#16a34a',color:'#fff',border:'none',cursor:'pointer',fontWeight:600}}>✓ บันทึก</button>
                         <button onClick={()=>setEditOpenMonth(null)}
                           style={{fontSize:12,padding:'4px 8px',borderRadius:6,background:'#e5e7eb',color:'#374151',border:'none',cursor:'pointer'}}>ยกเลิก</button>
-                      </>
+                      </React.Fragment>
                     ):(
-                      <>
+                      <React.Fragment>
                         <span style={{fontSize:15,fontWeight:800,color:'#3730a3'}}>฿{fmt(m.opening)}</span>
                         <button onClick={()=>{setEditOpenMonth(m.month);setOpenInput(String(m.opening));}}
                           style={{fontSize:12,padding:'4px 8px',borderRadius:6,background:'#e0e7ff',color:'#3730a3',border:'1px solid #a5b4fc',cursor:'pointer'}}>✏️ แก้ไข</button>
-                      </>
+                      </React.Fragment>
                     )}
                   </div>
-                  {/* Month KPIs */}
-                  <div style={{display:'flex',gap:12}}>
-                    {[
-                      {label:'รับรวม',val:m.inflow,color:'#16a34a'},
-                      {label:'จ่ายรวม',val:m.outflow,color:'#dc2626'},
-                      {label:'คงเหลือสิ้นเดือน',val:m.closeBal,color:m.closeBal>=0?'#7c3aed':'#dc2626',bold:true},
-                    ].map(k=>(
-                      <div key={k.label} style={{textAlign:'center',minWidth:100}}>
-                        <div style={{fontSize:10,color:'#64748b',fontWeight:600}}>{k.label}</div>
-                        <div style={{fontSize:13,fontWeight:k.bold?800:700,color:k.color}}>฿{fmt(k.val)}</div>
-                      </div>
-                    ))}
+                  {/* KPIs */}
+                  <div style={{display:'flex',gap:16}}>
+                    <div style={{textAlign:'center'}}><div style={{fontSize:10,color:'#64748b',fontWeight:600}}>รับรวม</div><div style={{fontSize:13,fontWeight:700,color:'#16a34a'}}>฿{fmt(m.inflow)}</div></div>
+                    <div style={{textAlign:'center'}}><div style={{fontSize:10,color:'#64748b',fontWeight:600}}>จ่ายรวม</div><div style={{fontSize:13,fontWeight:700,color:'#dc2626'}}>฿{fmt(m.outflow)}</div></div>
+                    <div style={{textAlign:'center'}}><div style={{fontSize:10,color:'#64748b',fontWeight:600}}>คงเหลือสิ้นเดือน</div><div style={{fontSize:13,fontWeight:800,color:m.closeBal>=0?'#7c3aed':'#dc2626'}}>฿{fmt(m.closeBal)}</div></div>
                   </div>
                 </div>
-
-                {/* Daily rows */}
+                {/* Daily table */}
                 <table>
                   <thead>
                     <tr>
@@ -1833,31 +1814,32 @@ function DailyCashFlow(){
                     </tr>
                   </thead>
                   <tbody>
-                    {m.daysWithBal.map(d=>(
-                      <React.Fragment key={d.date}>
-                        <tr onClick={()=>setBudExpandDate(budExpandDate===d.date?null:d.date)} style={{cursor:'pointer'}}>
-                          <td style={{fontWeight:700}}>{d.date} <span style={{fontSize:10,color:'#94a3b8'}}>{['อา','จ','อ','พ','พฤ','ศ','ส'][new Date(d.date).getDay()]}</span></td>
-                          <td style={{textAlign:'right',color:'#3730a3',background:'#f0f0ff',fontWeight:600}}>฿{fmt(d.openBal)}</td>
-                          <td style={{textAlign:'right',color:'#16a34a',fontWeight:600}}>{d.inflow?`฿${fmt(d.inflow)}`:'-'}</td>
-                          <td style={{textAlign:'right',color:'#dc2626',fontWeight:600}}>{d.outflow?`฿${fmt(d.outflow)}`:'-'}</td>
-                          <td style={{textAlign:'right',fontWeight:700,color:d.net>=0?'#7c3aed':'#dc2626'}}>{d.net>=0?'+':''}{fmt(d.net)}</td>
-                          <td style={{textAlign:'right',fontWeight:800,fontSize:14,background:d.closeBal>=0?'#f0fdf4':'#fff1f2',color:d.closeBal>=0?'#16a34a':'#dc2626'}}>฿{fmt(d.closeBal)}</td>
-                          <td style={{fontSize:11,color:'#64748b'}}>{d.items.length} รายการ {budExpandDate===d.date?'▲':'▼'}</td>
-                        </tr>
-                        {budExpandDate===d.date&&d.items.map(r=>(
-                          <tr key={r.id} style={{background:'#fafbff'}}>
-                            <td colSpan={2} style={{paddingLeft:32,fontSize:12,color:'#64748b'}}>
-                              {r.flow==='in'?'💰':'💸'} {r.category}
-                            </td>
-                            <td style={{textAlign:'right',color:'#16a34a',fontSize:12}}>{r.flow==='in'?`฿${fmt(r.amount)}`:'-'}</td>
-                            <td style={{textAlign:'right',color:'#dc2626',fontSize:12}}>{r.flow==='out'?`฿${fmt(r.amount)}`:'-'}</td>
-                            <td style={{fontSize:12,color:'#64748b'}}>{r.desc||'-'}</td>
-                            <td/>
-                            <td><button onClick={e=>{e.stopPropagation();delBudget(r.id);}} style={{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:13}}>🗑</button></td>
+                    {m.daysWithBal.map(d=>{
+                      const expanded=budExpandDate===d.date;
+                      return(
+                        <React.Fragment key={d.date}>
+                          <tr onClick={()=>setBudExpandDate(expanded?null:d.date)} style={{cursor:'pointer'}}>
+                            <td style={{fontWeight:700}}>{d.date} <span style={{fontSize:10,color:'#94a3b8'}}>{DAY_NAMES[new Date(d.date+'T00:00:00').getDay()]}</span></td>
+                            <td style={{textAlign:'right',color:'#3730a3',background:'#f0f0ff',fontWeight:600}}>฿{fmt(d.openBal)}</td>
+                            <td style={{textAlign:'right',color:'#16a34a',fontWeight:600}}>{d.inflow?'฿'+fmt(d.inflow):'-'}</td>
+                            <td style={{textAlign:'right',color:'#dc2626',fontWeight:600}}>{d.outflow?'฿'+fmt(d.outflow):'-'}</td>
+                            <td style={{textAlign:'right',fontWeight:700,color:d.net>=0?'#7c3aed':'#dc2626'}}>{(d.net>=0?'+':'')+fmt(d.net)}</td>
+                            <td style={{textAlign:'right',fontWeight:800,fontSize:14,background:d.closeBal>=0?'#f0fdf4':'#fff1f2',color:d.closeBal>=0?'#16a34a':'#dc2626'}}>฿{fmt(d.closeBal)}</td>
+                            <td style={{fontSize:11,color:'#64748b'}}>{d.items.length} รายการ {expanded?'▲':'▼'}</td>
                           </tr>
-                        ))}
-                      </React.Fragment>
-                    ))}
+                          {expanded&&d.items.map(r=>(
+                            <tr key={r.id} style={{background:'#fafbff'}}>
+                              <td colSpan={2} style={{paddingLeft:32,fontSize:12,color:'#64748b'}}>{r.flow==='in'?'💰':'💸'} {r.category}</td>
+                              <td style={{textAlign:'right',color:'#16a34a',fontSize:12}}>{r.flow==='in'?'฿'+fmt(r.amount):'-'}</td>
+                              <td style={{textAlign:'right',color:'#dc2626',fontSize:12}}>{r.flow==='out'?'฿'+fmt(r.amount):'-'}</td>
+                              <td style={{fontSize:12,color:'#64748b'}}>{r.desc||'-'}</td>
+                              <td/>
+                              <td><button onClick={e=>{e.stopPropagation();delBudget(r.id);}} style={{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:13}}>🗑</button></td>
+                            </tr>
+                          ))}
+                        </React.Fragment>
+                      );
+                    })}
                   </tbody>
                   <tfoot>
                     <tr style={{background:'#f5f3ff',fontWeight:700}}>
@@ -1865,7 +1847,7 @@ function DailyCashFlow(){
                       <td style={{textAlign:'right',color:'#3730a3'}}>฿{fmt(m.opening)}</td>
                       <td style={{textAlign:'right',color:'#16a34a'}}>฿{fmt(m.inflow)}</td>
                       <td style={{textAlign:'right',color:'#dc2626'}}>฿{fmt(m.outflow)}</td>
-                      <td style={{textAlign:'right',color:m.net>=0?'#7c3aed':'#dc2626'}}>{m.net>=0?'+':''}{fmt(m.net)}</td>
+                      <td style={{textAlign:'right',color:m.net>=0?'#7c3aed':'#dc2626'}}>{(m.net>=0?'+':'')+fmt(m.net)}</td>
                       <td style={{textAlign:'right',fontWeight:800,fontSize:14,color:m.closeBal>=0?'#16a34a':'#dc2626',background:m.closeBal>=0?'#f0fdf4':'#fff1f2'}}>฿{fmt(m.closeBal)}</td>
                       <td/>
                     </tr>
@@ -2010,86 +1992,301 @@ function Comparison(){
 
 /* ====== REPORTS ====== */
 function Reports(){
-  const [reportType,setReportType]=useState('monthly');
-  const [month,setMonth]=useState(1);
-  const [quarter,setQuarter]=useState(1);
-  const qMonths={1:[1,2,3],2:[4,5,6],3:[7,8,9],4:[10,11,12]};
-  const MONTHLY_DATA=buildMonthlyData();
-  const getMonths=()=>reportType==='monthly'?MONTHLY_DATA.filter(m=>m.month===month):reportType==='quarterly'?MONTHLY_DATA.filter(m=>qMonths[quarter].includes(m.month)):MONTHLY_DATA;
-  const filtered=getMonths();
-  const totals=filtered.reduce((a,m)=>({rb:a.rb+m.rev_budget,ra:a.ra+m.rev_actual,eb:a.eb+m.exp_budget,ea:a.ea+m.exp_actual}),{rb:0,ra:0,eb:0,ea:0});
+  const curYear=new Date().getFullYear();
+  const [reportYear,setReportYear]=useState(curYear.toString());
+  const [reportTab,setReportTab]=useState('pl'); // pl | cashpos | budutil | loan
+  const [quarter,setQuarter]=useState(0); // 0=ทั้งปี 1-4=Q1-Q4
+  const qMonths={0:[1,2,3,4,5,6,7,8,9,10,11,12],1:[1,2,3],2:[4,5,6],3:[7,8,9],4:[10,11,12]};
 
-  function doExportExcel(){
-    const rows=[['Month','Rev Budget','Rev Actual','Rev Var','Exp Budget','Exp Actual','Exp Var','Net Profit'],...filtered.map(m=>[m.label,m.rev_budget,m.rev_actual,m.rev_actual-m.rev_budget,m.exp_budget,m.exp_actual,m.exp_actual-m.exp_budget,m.rev_actual-m.exp_actual])];
-    exportExcel([{name:'Budget Report',data:rows}],'budget_report_2025.xlsx');
+  const allMD=buildMonthlyData(reportYear);
+  const md=quarter?allMD.filter(m=>qMonths[quarter].includes(m.month)):allMD;
+  const totals=md.reduce((a,m)=>({rb:a.rb+m.rev_budget,ra:a.ra+m.rev_actual,eb:a.eb+m.exp_budget,ea:a.ea+m.exp_actual}),{rb:0,ra:0,eb:0,ea:0});
+  const gpm=totals.ra>0?((totals.ra-totals.ea)/totals.ra*100):0;
+  const expRatio=totals.ra>0?(totals.ea/totals.ra*100):0;
+  const budAcc=totals.rb>0?(100-Math.abs(totals.ra-totals.rb)/totals.rb*100):0;
+
+  // Cash Position: running balance from cf_month_open + Budget CF
+  const cfBudgets=ls.get('cf_budgets',[]);
+  const cfMonthOpen=ls.get('cf_month_open',{});
+  const actualRecs=ls.get('actual_records',[]);
+  const loans=ls.get('loan_records',[]);
+  const totalLoanDraw=loans.filter(l=>l.txn_type==='draw').reduce((s,l)=>s+Number(l.amount),0);
+  const totalLoanRepay=loans.filter(l=>l.txn_type==='repay').reduce((s,l)=>s+Number(l.amount),0);
+  const loanBalance=totalLoanDraw-totalLoanRepay;
+  const loanInterest=loans.filter(l=>l.txn_type==='interest').reduce((s,l)=>s+Number(l.amount),0);
+
+  // Budget CF utilization per month
+  const cfBudUtil=md.map(m=>{
+    const bRev=m.rev_budget;
+    const aRev=m.rev_actual;
+    const bExp=m.exp_budget;
+    const aExp=m.exp_actual;
+    const revPct=bRev>0?(aRev/bRev*100):0;
+    const expPct=bExp>0?(aExp/bExp*100):0;
+    return{...m,revPct,expPct};
+  });
+
+  function doExport(){
+    const rows=[
+      ['เดือน','รายรับ Budget','รายรับ Actual','Var รายรับ','รายจ่าย Budget','รายจ่าย Actual','Var รายจ่าย','กำไร Budget','กำไร Actual'],
+      ...md.map(m=>[m.label,m.rev_budget,m.rev_actual,m.rev_actual-m.rev_budget,m.exp_budget,m.exp_actual,m.exp_actual-m.exp_budget,m.profit_budget,m.profit_actual])
+    ];
+    exportExcel([{name:'P&L',data:rows}],'report_pl_'+reportYear+'.xlsx');
   }
-  function doExportCSV(){exportCSV([['Month','Rev Budget','Rev Actual','Rev Var','Exp Budget','Exp Actual','Exp Var','Net Profit'],...filtered.map(m=>[m.label,m.rev_budget,m.rev_actual,m.rev_actual-m.rev_budget,m.exp_budget,m.exp_actual,m.exp_actual-m.exp_budget,m.rev_actual-m.exp_actual])],'budget_report.csv');}
 
-  const kpi={gpm:((totals.ra-totals.ea)/totals.ra*100).toFixed(1),exp:(totals.ea/totals.ra*100).toFixed(1),bud_acc:(100-Math.abs(totals.ra-totals.rb)/totals.rb*100).toFixed(1),growth:8.4};
+  const TAB_STYLE=(v)=>({padding:'8px 18px',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',border:'none',background:reportTab===v?'#fff':'transparent',color:reportTab===v?'#7c3aed':'#64748b',boxShadow:reportTab===v?'0 1px 3px rgba(0,0,0,.1)':'none'});
 
   return(
     <div style={{padding:24,maxWidth:1400,margin:'0 auto'}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:24}}>
-        <div><h1 style={{fontSize:22,fontWeight:800,color:'#2e1065',margin:0}}>📄 รายงาน</h1></div>
-        <div style={{display:'flex',gap:8}}>
-          <button onClick={doExportCSV} className="btn btn-secondary">📥 Export CSV</button>
-          <button onClick={doExportExcel} className="btn btn-secondary">📊 Export Excel</button>
+      {/* Header */}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20,flexWrap:'wrap',gap:12}}>
+        <div>
+          <h1 style={{fontSize:22,fontWeight:800,color:'#2e1065',margin:0}}>📄 รายงาน</h1>
+          <p style={{color:'#64748b',fontSize:13,marginTop:4}}>สรุปผลการดำเนินงาน — ประมาณการ vs ผลจริง</p>
+        </div>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <select value={reportYear} onChange={e=>setReportYear(e.target.value)} style={{fontSize:13,padding:'6px 10px',borderRadius:8,border:'1px solid #d1d5db'}}>
+            {Array.from({length:5},(_,i)=>(curYear-2+i).toString()).map(y=><option key={y}>{y}</option>)}
+          </select>
+          <select value={quarter} onChange={e=>setQuarter(+e.target.value)} style={{fontSize:13,padding:'6px 10px',borderRadius:8,border:'1px solid #d1d5db'}}>
+            <option value={0}>ทั้งปี</option>{[1,2,3,4].map(q=><option key={q} value={q}>Q{q}</option>)}
+          </select>
+          <button onClick={doExport} className="btn btn-secondary">📊 Export Excel</button>
           <button onClick={()=>window.print()} className="btn btn-secondary">🖨️ Print</button>
         </div>
       </div>
-      <div className="card" style={{marginBottom:16}}>
-        <div style={{display:'flex',flexWrap:'wrap',gap:16,alignItems:'flex-end'}}>
-          <div>
-            <label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>ประเภทรายงาน</label>
-            <div style={{display:'flex',gap:4,background:'#f5f3ff',padding:4,borderRadius:12}}>
-              {[['monthly','รายเดือน'],['quarterly','รายไตรมาส'],['annual','รายปี']].map(([v,l])=>(
-                <button key={v} onClick={()=>setReportType(v)} style={{padding:'8px 16px',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',border:'none',background:reportType===v?'#fff':'transparent',color:reportType===v?'#7c3aed':'#64748b',boxShadow:reportType===v?'0 1px 3px rgba(0,0,0,.1)':'none'}}>{l}</button>
-              ))}
-            </div>
-          </div>
-          {reportType==='monthly'&&<div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>เดือน</label><select value={month} onChange={e=>setMonth(+e.target.value)} style={{width:120}}>{MONTHS_EN.map((m,i)=><option key={i+1} value={i+1}>{m}</option>)}</select></div>}
-          {reportType==='quarterly'&&<div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>ไตรมาส</label><select value={quarter} onChange={e=>setQuarter(+e.target.value)} style={{width:120}}>{[1,2,3,4].map(q=><option key={q} value={q}>Q{q}</option>)}</select></div>}
-        </div>
-      </div>
-      <div style={{background:'linear-gradient(135deg,#2e1065,#6d28d9)',borderRadius:12,padding:24,color:'#fff',textAlign:'center',marginBottom:16}}>
-        <h2 style={{fontSize:20,fontWeight:800,margin:0}}>รายงาน{reportType==='monthly'?` ${MONTHS_EN[month-1]}`:reportType==='quarterly'?` Q${quarter}`:'ประจำปี'} 2025</h2>
-        <p style={{color:'#c4b5fd',fontSize:12,marginTop:4}}>สร้างเมื่อ {new Date().toLocaleString('th-TH')}</p>
-      </div>
-      <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12,marginBottom:16}}>
-        {[{l:'รายรับประมาณการ',v:totals.rb,c:'#7c3aed'},{l:'รายรับจริง',v:totals.ra,c:'#16a34a'},{l:'รายจ่ายประมาณการ',v:totals.eb,c:'#d97706'},{l:'รายจ่ายจริง',v:totals.ea,c:'#dc2626'},{l:'กำไร (Budget)',v:totals.rb-totals.eb,c:'#a21caf'},{l:'กำไร (Actual)',v:totals.ra-totals.ea,c:totals.ra-totals.ea>=0?'#7c3aed':'#dc2626'}].map(s=>(
-          <div key={s.l} className="kpi-card" style={{textAlign:'center'}}>
-            <div style={{fontSize:11,color:'#64748b'}}>{s.l}</div>
-            <div style={{fontSize:20,fontWeight:800,color:s.c,marginTop:4}}>฿{fmtM(s.v)}</div>
+
+      {/* KPI Summary Bar */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:10,marginBottom:20}}>
+        {[
+          {l:'รายรับ Budget',v:totals.rb,c:'#7c3aed',bg:'#faf5ff'},
+          {l:'รายรับ Actual',v:totals.ra,c:'#16a34a',bg:'#f0fdf4'},
+          {l:'รายจ่าย Budget',v:totals.eb,c:'#d97706',bg:'#fffbeb'},
+          {l:'รายจ่าย Actual',v:totals.ea,c:'#dc2626',bg:'#fff1f2'},
+          {l:'กำไรสุทธิ (Actual)',v:totals.ra-totals.ea,c:totals.ra-totals.ea>=0?'#7c3aed':'#dc2626',bg:totals.ra-totals.ea>=0?'#faf5ff':'#fff1f2'},
+          {l:'Budget Accuracy',v:budAcc,c:budAcc>=90?'#16a34a':'#d97706',bg:budAcc>=90?'#f0fdf4':'#fffbeb',pct:true},
+        ].map(s=>(
+          <div key={s.l} style={{background:s.bg,borderRadius:12,padding:'12px 14px',borderLeft:'3px solid '+s.c}}>
+            <div style={{fontSize:10,color:'#64748b',fontWeight:600,marginBottom:4}}>{s.l}</div>
+            <div style={{fontSize:16,fontWeight:800,color:s.c}}>{s.pct?s.v.toFixed(1)+'%':'฿'+fmtM(s.v)}</div>
           </div>
         ))}
       </div>
-      <div className="card" style={{overflowX:'auto',marginBottom:16}}>
-        <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>ตารางรายละเอียด</h3>
-        <table>
-          <thead><tr><th>เดือน</th><th style={{textAlign:'right'}}>Rev Budget</th><th style={{textAlign:'right'}}>Rev Actual</th><th style={{textAlign:'right'}}>Rev Var</th><th style={{textAlign:'right'}}>Exp Budget</th><th style={{textAlign:'right'}}>Exp Actual</th><th style={{textAlign:'right'}}>Exp Var</th><th style={{textAlign:'right'}}>Net Profit</th></tr></thead>
-          <tbody>{filtered.map(m=>{const rv=m.rev_actual-m.rev_budget,ev=m.exp_actual-m.exp_budget,prof=m.rev_actual-m.exp_actual;return<tr key={m.month}>
-            <td style={{fontWeight:600}}>{m.label}</td>
-            <td style={{textAlign:'right'}}>{fmt(m.rev_budget)}</td><td style={{textAlign:'right',fontWeight:600}}>{fmt(m.rev_actual)}</td>
-            <td style={{textAlign:'right',color:rv>=0?'#16a34a':'#dc2626',fontWeight:600}}>{rv>=0?'+':''}{fmt(rv)}</td>
-            <td style={{textAlign:'right'}}>{fmt(m.exp_budget)}</td><td style={{textAlign:'right',fontWeight:600}}>{fmt(m.exp_actual)}</td>
-            <td style={{textAlign:'right',color:ev<=0?'#16a34a':'#dc2626',fontWeight:600}}>{ev>=0?'+':''}{fmt(ev)}</td>
-            <td style={{textAlign:'right',fontWeight:700,color:prof>=0?'#7c3aed':'#dc2626'}}>{fmt(prof)}</td>
-          </tr>;})}</tbody>
-          <tfoot><tr><td>รวม</td><td style={{textAlign:'right'}}>{fmt(totals.rb)}</td><td style={{textAlign:'right'}}>{fmt(totals.ra)}</td><td style={{textAlign:'right',color:totals.ra-totals.rb>=0?'#16a34a':'#dc2626'}}>{totals.ra-totals.rb>=0?'+':''}{fmt(totals.ra-totals.rb)}</td><td style={{textAlign:'right'}}>{fmt(totals.eb)}</td><td style={{textAlign:'right'}}>{fmt(totals.ea)}</td><td style={{textAlign:'right',color:totals.ea-totals.eb<=0?'#16a34a':'#dc2626'}}>{totals.ea-totals.eb>=0?'+':''}{fmt(totals.ea-totals.eb)}</td><td style={{textAlign:'right',color:totals.ra-totals.ea>=0?'#7c3aed':'#dc2626'}}>{fmt(totals.ra-totals.ea)}</td></tr></tfoot>
-        </table>
+
+      {/* Tab Navigation */}
+      <div style={{display:'flex',gap:4,background:'#f5f3ff',padding:4,borderRadius:12,width:'fit-content',marginBottom:20,flexWrap:'wrap'}}>
+        {[['pl','📊 P&L Summary'],['cashpos','💰 Cash Position'],['budutil','🎯 Budget Utilization'],['loan','🏦 สรุปเงินกู้']].map(([v,l])=>(
+          <button key={v} onClick={()=>setReportTab(v)} style={TAB_STYLE(v)}>{l}</button>
+        ))}
       </div>
-      <div className="card">
-        <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>KPI Summary</h3>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
-          {[['Gross Profit Margin',fmtP(kpi.gpm),parseFloat(kpi.gpm)>20],['Expense Ratio',fmtP(kpi.exp),parseFloat(kpi.exp)<80],['Revenue Growth',fmtP(kpi.growth),true],['Budget Accuracy',fmtP(kpi.bud_acc),parseFloat(kpi.bud_acc)>90]].map(([lbl,val,good])=>(
-            <div key={lbl} style={{background:good?'#f0fdf4':'#fff7ed',borderRadius:12,padding:16,textAlign:'center'}}>
-              <div style={{fontSize:22,fontWeight:800,color:good?'#16a34a':'#d97706'}}>{val}</div>
-              <div style={{fontSize:11,color:'#64748b',marginTop:4}}>{lbl}</div>
-              <div style={{fontSize:11,fontWeight:600,color:good?'#16a34a':'#d97706',marginTop:6}}>{good?'✓ ดี':'⚠ ควรปรับ'}</div>
-            </div>
-          ))}
+
+      {/* ===== P&L SUMMARY ===== */}
+      {reportTab==='pl'&&(
+        <div>
+          <div className="card" style={{marginBottom:16,overflowX:'auto'}}>
+            <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>📊 Profit & Loss — รายรับ/รายจ่าย/กำไร รายเดือน</h3>
+            <table>
+              <thead>
+                <tr>
+                  <th>เดือน</th>
+                  <th style={{textAlign:'right',background:'#ede9fe',color:'#6d28d9'}}>รายรับ Budget</th>
+                  <th style={{textAlign:'right',background:'#dcfce7',color:'#166534'}}>รายรับ Actual</th>
+                  <th style={{textAlign:'right'}}>Var รายรับ</th>
+                  <th style={{textAlign:'right',background:'#fef9c3',color:'#854d0e'}}>รายจ่าย Budget</th>
+                  <th style={{textAlign:'right',background:'#fee2e2',color:'#991b1b'}}>รายจ่าย Actual</th>
+                  <th style={{textAlign:'right'}}>Var รายจ่าย</th>
+                  <th style={{textAlign:'right',background:'#f3e8ff',color:'#6b21a8',fontWeight:800}}>กำไรสุทธิ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {md.filter(m=>m.rev_budget>0||m.rev_actual>0||m.exp_budget>0||m.exp_actual>0).map(m=>{
+                  const rv=m.rev_actual-m.rev_budget;
+                  const ev=m.exp_actual-m.exp_budget;
+                  const prof=m.rev_actual-m.exp_actual;
+                  return(
+                    <tr key={m.month}>
+                      <td style={{fontWeight:600}}>{m.label}</td>
+                      <td style={{textAlign:'right',color:'#6d28d9'}}>฿{fmt(m.rev_budget)}</td>
+                      <td style={{textAlign:'right',color:'#16a34a',fontWeight:600}}>฿{fmt(m.rev_actual)}</td>
+                      <td style={{textAlign:'right',color:rv>=0?'#16a34a':'#dc2626',fontWeight:600}}>{rv>=0?'+':''}{fmt(rv)}</td>
+                      <td style={{textAlign:'right',color:'#d97706'}}>฿{fmt(m.exp_budget)}</td>
+                      <td style={{textAlign:'right',color:'#dc2626',fontWeight:600}}>฿{fmt(m.exp_actual)}</td>
+                      <td style={{textAlign:'right',color:ev<=0?'#16a34a':'#dc2626',fontWeight:600}}>{ev>=0?'+':''}{fmt(ev)}</td>
+                      <td style={{textAlign:'right',fontWeight:800,color:prof>=0?'#7c3aed':'#dc2626'}}>฿{fmt(prof)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr style={{background:'#f5f3ff',fontWeight:700}}>
+                  <td>รวม</td>
+                  <td style={{textAlign:'right',color:'#6d28d9'}}>฿{fmt(totals.rb)}</td>
+                  <td style={{textAlign:'right',color:'#16a34a'}}>฿{fmt(totals.ra)}</td>
+                  <td style={{textAlign:'right',color:totals.ra-totals.rb>=0?'#16a34a':'#dc2626'}}>{totals.ra-totals.rb>=0?'+':''}{fmt(totals.ra-totals.rb)}</td>
+                  <td style={{textAlign:'right',color:'#d97706'}}>฿{fmt(totals.eb)}</td>
+                  <td style={{textAlign:'right',color:'#dc2626'}}>฿{fmt(totals.ea)}</td>
+                  <td style={{textAlign:'right',color:totals.ea-totals.eb<=0?'#16a34a':'#dc2626'}}>{totals.ea-totals.eb>=0?'+':''}{fmt(totals.ea-totals.eb)}</td>
+                  <td style={{textAlign:'right',fontWeight:800,color:totals.ra-totals.ea>=0?'#7c3aed':'#dc2626'}}>฿{fmt(totals.ra-totals.ea)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          {/* KPI Cards */}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:12}}>
+            {[
+              {label:'Gross Profit Margin',value:gpm.toFixed(1)+'%',good:gpm>20,desc:'กำไรสุทธิ / รายรับจริง'},
+              {label:'Expense Ratio',value:expRatio.toFixed(1)+'%',good:expRatio<80,desc:'รายจ่ายจริง / รายรับจริง'},
+              {label:'Budget Accuracy',value:budAcc.toFixed(1)+'%',good:budAcc>90,desc:'ความแม่นยำของประมาณการ'},
+            ].map(k=>(
+              <div key={k.label} style={{background:k.good?'#f0fdf4':'#fff7ed',borderRadius:12,padding:20,textAlign:'center',border:'1px solid '+(k.good?'#bbf7d0':'#fde68a')}}>
+                <div style={{fontSize:28,fontWeight:800,color:k.good?'#16a34a':'#d97706'}}>{k.value}</div>
+                <div style={{fontSize:13,fontWeight:700,color:'#374151',marginTop:4}}>{k.label}</div>
+                <div style={{fontSize:11,color:'#64748b',marginTop:4}}>{k.desc}</div>
+                <div style={{fontSize:12,fontWeight:600,color:k.good?'#16a34a':'#d97706',marginTop:8}}>{k.good?'✅ อยู่ในเกณฑ์ดี':'⚠️ ควรปรับปรุง'}</div>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* ===== CASH POSITION ===== */}
+      {reportTab==='cashpos'&&(
+        <div className="card" style={{overflowX:'auto'}}>
+          <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:4}}>💰 Cash Position — ยอดเงินสดสะสมรายเดือน</h3>
+          <p style={{fontSize:12,color:'#64748b',marginBottom:12}}>คำนวณจาก ยอดยกมาต้นเดือน (Budget CF) + รายรับจริง − รายจ่ายจริง</p>
+          <table>
+            <thead>
+              <tr>
+                <th>เดือน</th>
+                <th style={{textAlign:'right',background:'#e0e7ff',color:'#3730a3'}}>ยอดยกมา (Budget) 📂</th>
+                <th style={{textAlign:'right',background:'#dcfce7',color:'#166534'}}>รับจริง 💰</th>
+                <th style={{textAlign:'right',background:'#fee2e2',color:'#991b1b'}}>จ่ายจริง 💸</th>
+                <th style={{textAlign:'right',background:'#f3e8ff',color:'#6b21a8'}}>สุทธิจริง</th>
+                <th style={{textAlign:'right',background:'#fef9c3',color:'#854d0e',fontWeight:800}}>คงเหลือสิ้นเดือน 🏦</th>
+                <th style={{textAlign:'right',background:'#e0e7ff',color:'#3730a3'}}>Budget คงเหลือ 🎯</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(()=>{
+                let runActual=0;
+                return md.map((m,i)=>{
+                  const mk=reportYear+'-'+String(m.month).padStart(2,'0');
+                  const opening=cfMonthOpen[mk]||0;
+                  if(i===0)runActual=opening;
+                  const net=m.rev_actual-m.exp_actual;
+                  runActual+=net;
+                  const budClose=opening+(m.rev_budget-m.exp_budget);
+                  const hasData=opening>0||m.rev_actual>0||m.exp_actual>0;
+                  if(!hasData)return null;
+                  return(
+                    <tr key={m.month}>
+                      <td style={{fontWeight:600}}>{m.label}</td>
+                      <td style={{textAlign:'right',color:'#3730a3',background:'#f0f0ff',fontWeight:600}}>฿{fmt(opening)}</td>
+                      <td style={{textAlign:'right',color:'#16a34a',fontWeight:600}}>{m.rev_actual?'฿'+fmt(m.rev_actual):'-'}</td>
+                      <td style={{textAlign:'right',color:'#dc2626',fontWeight:600}}>{m.exp_actual?'฿'+fmt(m.exp_actual):'-'}</td>
+                      <td style={{textAlign:'right',fontWeight:700,color:net>=0?'#7c3aed':'#dc2626'}}>{(net>=0?'+':'')+fmt(net)}</td>
+                      <td style={{textAlign:'right',fontWeight:800,fontSize:14,background:runActual>=0?'#f0fdf4':'#fff1f2',color:runActual>=0?'#16a34a':'#dc2626'}}>฿{fmt(runActual)}</td>
+                      <td style={{textAlign:'right',color:'#6d28d9',fontWeight:600}}>฿{fmt(budClose)}</td>
+                    </tr>
+                  );
+                }).filter(Boolean);
+              })()}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ===== BUDGET UTILIZATION ===== */}
+      {reportTab==='budutil'&&(
+        <div className="card" style={{overflowX:'auto'}}>
+          <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:4}}>🎯 Budget Utilization — ใช้งบไปกี่ %</h3>
+          <p style={{fontSize:12,color:'#64748b',marginBottom:12}}>เปรียบเทียบ Actual vs Budget ว่าใช้งานจริงเกิน/ต่ำกว่าแผนเท่าไหร่</p>
+          <table>
+            <thead>
+              <tr>
+                <th>เดือน</th>
+                <th style={{textAlign:'right'}}>รายรับ Budget</th>
+                <th style={{textAlign:'right'}}>รายรับ Actual</th>
+                <th style={{textAlign:'center'}}>% รายรับ</th>
+                <th style={{textAlign:'right'}}>รายจ่าย Budget</th>
+                <th style={{textAlign:'right'}}>รายจ่าย Actual</th>
+                <th style={{textAlign:'center'}}>% รายจ่าย</th>
+                <th style={{textAlign:'center'}}>สถานะ</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cfBudUtil.filter(m=>m.rev_budget>0||m.exp_budget>0).map(m=>{
+                const revOk=m.revPct>=95;
+                const expOk=m.expPct<=105;
+                const status=revOk&&expOk?'✅ ดี':(!revOk&&!expOk)?'❌ ต้องแก้':'⚠️ ปรับได้';
+                const statusC=revOk&&expOk?'#16a34a':(!revOk&&!expOk)?'#dc2626':'#d97706';
+                return(
+                  <tr key={m.month}>
+                    <td style={{fontWeight:600}}>{m.label}</td>
+                    <td style={{textAlign:'right',color:'#6d28d9'}}>฿{fmt(m.rev_budget)}</td>
+                    <td style={{textAlign:'right',color:'#16a34a',fontWeight:600}}>฿{fmt(m.rev_actual)}</td>
+                    <td style={{textAlign:'center'}}>
+                      <span style={{padding:'2px 8px',borderRadius:4,fontSize:12,fontWeight:700,background:m.revPct>=95?'#dcfce7':'#fee2e2',color:m.revPct>=95?'#166534':'#991b1b'}}>{m.revPct.toFixed(0)}%</span>
+                    </td>
+                    <td style={{textAlign:'right',color:'#d97706'}}>฿{fmt(m.exp_budget)}</td>
+                    <td style={{textAlign:'right',color:'#dc2626',fontWeight:600}}>฿{fmt(m.exp_actual)}</td>
+                    <td style={{textAlign:'center'}}>
+                      <span style={{padding:'2px 8px',borderRadius:4,fontSize:12,fontWeight:700,background:m.expPct<=105?'#dcfce7':'#fee2e2',color:m.expPct<=105?'#166534':'#991b1b'}}>{m.expPct.toFixed(0)}%</span>
+                    </td>
+                    <td style={{textAlign:'center',fontWeight:700,color:statusC}}>{status}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* ===== LOAN SUMMARY ===== */}
+      {reportTab==='loan'&&(
+        <div>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:16}}>
+            {[
+              {label:'วงเงินกู้ทั้งหมด',value:'฿'+fmtM(totalLoanDraw),color:'#7c3aed',bg:'#faf5ff'},
+              {label:'ชำระคืนแล้ว',value:'฿'+fmtM(totalLoanRepay),color:'#16a34a',bg:'#f0fdf4'},
+              {label:'ยอดคงค้าง',value:'฿'+fmtM(loanBalance),color:loanBalance>0?'#dc2626':'#16a34a',bg:loanBalance>0?'#fff1f2':'#f0fdf4'},
+              {label:'ดอกเบี้ยสะสม',value:'฿'+fmtM(loanInterest),color:'#d97706',bg:'#fffbeb'},
+            ].map(k=>(
+              <div key={k.label} style={{background:k.bg,borderRadius:12,padding:16,borderLeft:'3px solid '+k.color}}>
+                <div style={{fontSize:11,color:'#64748b',fontWeight:600,marginBottom:4}}>{k.label}</div>
+                <div style={{fontSize:18,fontWeight:800,color:k.color}}>{k.value}</div>
+              </div>
+            ))}
+          </div>
+          <div className="card" style={{overflowX:'auto'}}>
+            <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>รายการเงินกู้ทั้งหมด</h3>
+            <table>
+              <thead>
+                <tr><th>วันที่</th><th>ประเภท</th><th>ธนาคาร/เจ้าหนี้</th><th style={{textAlign:'right'}}>จำนวนเงิน</th><th>หมายเหตุ</th></tr>
+              </thead>
+              <tbody>
+                {loans.length===0?(
+                  <tr><td colSpan={5} style={{textAlign:'center',padding:32,color:'#94a3b8'}}>ไม่มีข้อมูลเงินกู้</td></tr>
+                ):loans.sort((a,b)=>(b.date||'').localeCompare(a.date||'')).map(l=>(
+                  <tr key={l.id}>
+                    <td>{l.date||'-'}</td>
+                    <td>
+                      <span style={{padding:'2px 8px',borderRadius:4,fontSize:12,fontWeight:600,
+                        background:l.txn_type==='draw'?'#ede9fe':l.txn_type==='repay'?'#dcfce7':'#fef9c3',
+                        color:l.txn_type==='draw'?'#6d28d9':l.txn_type==='repay'?'#166534':'#854d0e'}}>
+                        {l.txn_type==='draw'?'📤 กู้':'📥 ชำระ/ดอกเบี้ย'}
+                      </span>
+                    </td>
+                    <td>{l.bank||l.creditor||'-'}</td>
+                    <td style={{textAlign:'right',fontWeight:600,color:l.txn_type==='draw'?'#7c3aed':'#16a34a'}}>฿{fmt(Number(l.amount))}</td>
+                    <td style={{fontSize:12,color:'#64748b'}}>{l.notes||l.desc||'-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2138,8 +2335,6 @@ function Users(){
 /* ====== LAYOUT ====== */
 const MENU=[
   {id:'dashboard',label:'Dashboard',icon:'📊'},
-  {id:'revenue',label:'งบรายรับ',icon:'💰'},
-  {id:'expense',label:'งบรายจ่าย',icon:'📋'},
   {id:'actual',label:'บันทึกผลจริง',icon:'✏️'},
   {id:'loan',label:'เงินกู้ & P/N',icon:'🏦'},
   {id:'cashflow',label:'Cash Flow รายวัน',icon:'📅'},
