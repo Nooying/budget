@@ -2523,7 +2523,10 @@ function Users(){
   const [users,setUsers]=useState(()=>getAppUsers());
   const [form,setForm]=useState({name:'',username:'',email:'',password:'',role:'dept_manager',dept:DEPARTMENTS[0]});
   const [msg,setMsg]=useState('');
-  const [editPw,setEditPw]=useState(null);
+  // Edit modal state
+  const [editUser,setEditUser]=useState(null); // user object being edited
+  const [editForm,setEditForm]=useState({});
+  const [showNewPw,setShowNewPw]=useState(false);
   const [newPw,setNewPw]=useState('');
 
   const PERMS=[
@@ -2538,41 +2541,109 @@ function Users(){
     ['จัดการผู้ใช้','✅','❌','❌','❌'],
   ];
 
+  function showMsg(t){setMsg(t);setTimeout(()=>setMsg(''),4000);}
+
   function addUser(e){
     e.preventDefault();
-    if(users.find(u=>u.username===form.username)){setMsg('❌ Username นี้มีอยู่แล้ว');return;}
+    if(users.find(u=>u.username===form.username)){showMsg('❌ Username นี้มีอยู่แล้ว');return;}
     const nr=[...users,{id:Date.now(),...form}];
     setUsers(nr);saveAppUsers(nr);
-    setMsg('✅ เพิ่มผู้ใช้ '+form.name+' สำเร็จ');
+    showMsg('✅ เพิ่มผู้ใช้ '+form.name+' สำเร็จ — Login ได้ทันที');
     setForm({name:'',username:'',email:'',password:'',role:'dept_manager',dept:DEPARTMENTS[0]});
-    setTimeout(()=>setMsg(''),4000);
+  }
+
+  function openEdit(u){
+    setEditUser(u);
+    setEditForm({name:u.name,username:u.username,email:u.email||'',role:u.role,dept:u.dept||DEPARTMENTS[0]});
+    setShowNewPw(false);setNewPw('');
+  }
+
+  function saveEdit(e){
+    e.preventDefault();
+    if(editForm.username!==editUser.username&&users.find(u=>u.username===editForm.username)){
+      showMsg('❌ Username นี้มีอยู่แล้ว');return;
+    }
+    const updated={...editUser,...editForm};
+    if(showNewPw&&newPw){
+      if(newPw.length<4){showMsg('❌ รหัสผ่านต้องมีอย่างน้อย 4 ตัว');return;}
+      updated.password=newPw;
+    }
+    const nr=users.map(u=>u.id===editUser.id?updated:u);
+    setUsers(nr);saveAppUsers(nr);
+    setEditUser(null);
+    showMsg('✅ แก้ไขข้อมูล '+updated.name+' สำเร็จ');
   }
 
   function deleteUser(id){
-    if(users.find(u=>u.id===id)?.role==='admin'){alert('ไม่สามารถลบ Admin ได้');return;}
-    if(!window.confirm('ลบผู้ใช้นี้?'))return;
+    const u=users.find(u=>u.id===id);
+    if(u?.role==='admin'){showMsg('❌ ไม่สามารถลบ Admin ได้');return;}
+    if(!window.confirm('ลบผู้ใช้ "'+u?.name+'" ออกจากระบบ?\nการลบจะไม่กระทบข้อมูลที่บันทึกไว้แล้ว'))return;
     const nr=users.filter(u=>u.id!==id);
     setUsers(nr);saveAppUsers(nr);
-  }
-
-  function savePw(id){
-    if(!newPw||newPw.length<4){setMsg('❌ รหัสผ่านต้องมีอย่างน้อย 4 ตัว');return;}
-    const nr=users.map(u=>u.id===id?{...u,password:newPw}:u);
-    setUsers(nr);saveAppUsers(nr);
-    setEditPw(null);setNewPw('');setMsg('✅ เปลี่ยนรหัสผ่านสำเร็จ');
-    setTimeout(()=>setMsg(''),3000);
+    showMsg('✅ ลบผู้ใช้ '+u?.name+' สำเร็จ');
   }
 
   return(
     <div style={{padding:24,maxWidth:1400,margin:'0 auto'}}>
-      <div style={{marginBottom:24}}>
+      <div style={{marginBottom:20}}>
         <h1 style={{fontSize:22,fontWeight:800,color:'#2e1065',margin:0}}>👥 ผู้ใช้งานระบบ</h1>
         <p style={{fontSize:13,color:'#64748b',marginTop:4}}>Admin/Finance เห็นข้อมูลทุกคน | Dept.Manager/Executive เห็นเฉพาะที่ตัวเองบันทึก</p>
       </div>
 
-      {msg&&<div style={{marginBottom:12,padding:'10px 16px',borderRadius:8,background:msg.startsWith('❌')?'#fff1f2':'#f0fdf4',color:msg.startsWith('❌')?'#dc2626':'#16a34a',fontWeight:600,fontSize:13}}>{msg}</div>}
+      {msg&&<div style={{marginBottom:14,padding:'10px 16px',borderRadius:8,background:msg.startsWith('❌')?'#fff1f2':'#f0fdf4',color:msg.startsWith('❌')?'#dc2626':'#16a34a',fontWeight:600,fontSize:13}}>{msg}</div>}
 
-      {/* Add User */}
+      {/* Edit Modal */}
+      {editUser&&(
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,.45)',zIndex:300,display:'flex',alignItems:'center',justifyContent:'center',padding:16}}>
+          <div style={{background:'#fff',borderRadius:16,padding:28,width:'100%',maxWidth:560,boxShadow:'0 20px 60px rgba(0,0,0,.25)'}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+              <h2 style={{fontWeight:800,fontSize:18,color:'#2e1065',margin:0}}>✏️ แก้ไขข้อมูลผู้ใช้</h2>
+              <button onClick={()=>setEditUser(null)} style={{background:'#f1f5f9',border:'none',borderRadius:8,width:32,height:32,cursor:'pointer',fontSize:18,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+            </div>
+            <form onSubmit={saveEdit}>
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:14,marginBottom:16}}>
+                <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>ชื่อ-นามสกุล *</label>
+                  <input value={editForm.name} onChange={e=>setEditForm(f=>({...f,name:e.target.value}))} required/></div>
+                <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>Username *</label>
+                  <input value={editForm.username} onChange={e=>setEditForm(f=>({...f,username:e.target.value.toLowerCase().replace(/\s/g,'')}))}
+                    disabled={editUser.role==='admin'} style={{background:editUser.role==='admin'?'#f8f5ff':''}} required/></div>
+                <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>Email</label>
+                  <input type="email" value={editForm.email} onChange={e=>setEditForm(f=>({...f,email:e.target.value}))}/></div>
+                <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>แผนก</label>
+                  <select value={editForm.dept} onChange={e=>setEditForm(f=>({...f,dept:e.target.value}))}>
+                    {DEPARTMENTS.map(d=><option key={d}>{d}</option>)}
+                  </select></div>
+                <div style={{gridColumn:'span 2'}}><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>สิทธิ์</label>
+                  <select value={editForm.role} onChange={e=>setEditForm(f=>({...f,role:e.target.value}))}
+                    disabled={editUser.role==='admin'} style={{background:editUser.role==='admin'?'#f8f5ff':''}}>
+                    {Object.entries(ROLE_LABEL).map(([v,l])=><option key={v} value={v}>{l}</option>)}
+                  </select></div>
+              </div>
+
+              {/* Password reset section */}
+              <div style={{background:'#f8f5ff',borderRadius:10,padding:14,marginBottom:18}}>
+                <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:showNewPw?12:0}}>
+                  <label style={{display:'flex',alignItems:'center',gap:8,cursor:'pointer',fontSize:13,fontWeight:600,color:'#4c1d95'}}>
+                    <input type="checkbox" checked={showNewPw} onChange={e=>setShowNewPw(e.target.checked)} style={{width:'auto'}}/>
+                    🔑 เปลี่ยนรหัสผ่าน
+                  </label>
+                </div>
+                {showNewPw&&(
+                  <input type="password" placeholder="รหัสผ่านใหม่ (อย่างน้อย 4 ตัว)" value={newPw}
+                    onChange={e=>setNewPw(e.target.value)} style={{marginTop:4}}/>
+                )}
+              </div>
+
+              <div style={{display:'flex',gap:10,justifyContent:'flex-end'}}>
+                <button type="button" onClick={()=>setEditUser(null)} className="btn btn-secondary">ยกเลิก</button>
+                <button type="submit" className="btn btn-primary">💾 บันทึกการแก้ไข</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Add User Form */}
       <div className="card" style={{marginBottom:16}}>
         <h2 style={{fontWeight:700,fontSize:15,marginBottom:16,color:'#4c1d95'}}>➕ เพิ่มผู้ใช้งานใหม่</h2>
         <form onSubmit={addUser}>
@@ -2596,39 +2667,37 @@ function Users(){
         </form>
       </div>
 
-      {/* User Table */}
-      <div className="card" style={{marginBottom:16,overflowX:'auto'}}>
-        <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>รายชื่อผู้ใช้งาน ({users.length} คน)</h3>
-        <table>
-          <thead><tr>
-            <th>ชื่อ</th><th>Username</th><th>Email</th><th>แผนก</th><th>สิทธิ์</th>
-            <th style={{textAlign:'center'}}>เห็นข้อมูล</th><th>เปลี่ยนรหัส</th><th style={{width:40}}>ลบ</th>
-          </tr></thead>
-          <tbody>{users.map(u=>(
-            <tr key={u.id}>
-              <td style={{fontWeight:600}}>{u.name}</td>
-              <td style={{color:'#64748b',fontFamily:'monospace',fontSize:12}}>@{u.username}</td>
-              <td style={{color:'#64748b',fontSize:12}}>{u.email||'-'}</td>
-              <td style={{fontSize:12}}>{u.dept||'-'}</td>
-              <td><span className={'badge '+(ROLE_COLOR[u.role]||'badge-purple')} style={{fontSize:11}}>{ROLE_LABEL[u.role]||u.role}</span></td>
-              <td style={{textAlign:'center',fontSize:12}}>{canSeeAll(u)?<span style={{color:'#7c3aed',fontWeight:700}}>👁 ทุกคน</span>:<span style={{color:'#64748b'}}>👤 ตัวเอง</span>}</td>
-              <td>
-                {editPw===u.id?(
-                  <div style={{display:'flex',gap:4,alignItems:'center'}}>
-                    <input type="password" placeholder="รหัสใหม่" value={newPw} onChange={e=>setNewPw(e.target.value)} style={{width:90,fontSize:12,padding:'3px 6px',borderRadius:6,border:'1px solid #d1d5db'}}/>
-                    <button onClick={()=>savePw(u.id)} style={{fontSize:11,padding:'3px 8px',borderRadius:6,background:'#16a34a',color:'#fff',border:'none',cursor:'pointer'}}>✓</button>
-                    <button onClick={()=>{setEditPw(null);setNewPw('');}} style={{fontSize:11,padding:'3px 6px',borderRadius:6,background:'#e5e7eb',border:'none',cursor:'pointer'}}>✕</button>
-                  </div>
-                ):(
-                  <button onClick={()=>setEditPw(u.id)} style={{fontSize:11,padding:'3px 10px',borderRadius:6,background:'#e0e7ff',color:'#3730a3',border:'1px solid #a5b4fc',cursor:'pointer'}}>🔑 เปลี่ยน</button>
-                )}
-              </td>
-              <td>
-                {u.role!=='admin'?<button onClick={()=>deleteUser(u.id)} style={{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:16}}>🗑</button>:<span style={{fontSize:12,color:'#94a3b8'}}>—</span>}
-              </td>
-            </tr>
-          ))}</tbody>
-        </table>
+      {/* User Cards */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:12,marginBottom:16}}>
+        {users.map(u=>(
+          <div key={u.id} className="card" style={{padding:16,border:'2px solid '+(u.id===curUser.id?'#7c3aed':'#e5e7eb')}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}>
+              <div style={{display:'flex',alignItems:'center',gap:10}}>
+                <div style={{width:40,height:40,borderRadius:'50%',background:'linear-gradient(135deg,#6d28d9,#a78bfa)',display:'flex',alignItems:'center',justifyContent:'center',color:'#fff',fontWeight:800,fontSize:16,flexShrink:0}}>
+                  {u.name.charAt(0).toUpperCase()}
+                </div>
+                <div>
+                  <div style={{fontWeight:700,fontSize:14,color:'#1e1b4b'}}>{u.name} {u.id===curUser.id&&<span style={{fontSize:10,background:'#e0e7ff',color:'#3730a3',padding:'1px 6px',borderRadius:4,marginLeft:4}}>คุณ</span>}</div>
+                  <div style={{fontSize:12,color:'#64748b',fontFamily:'monospace'}}>@{u.username}</div>
+                </div>
+              </div>
+              <span className={'badge '+(ROLE_COLOR[u.role]||'badge-purple')} style={{fontSize:10,flexShrink:0}}>{ROLE_LABEL[u.role]||u.role}</span>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,fontSize:12,color:'#64748b',marginBottom:12}}>
+              <div>📧 {u.email||'-'}</div>
+              <div>🏢 {u.dept||'-'}</div>
+              <div style={{gridColumn:'span 2'}}>{canSeeAll(u)?'👁 เห็นข้อมูลทุกคน':'👤 เห็นเฉพาะตัวเอง'}</div>
+            </div>
+            <div style={{display:'flex',gap:8}}>
+              <button onClick={()=>openEdit(u)} style={{flex:1,padding:'7px 0',borderRadius:8,background:'#e0e7ff',color:'#3730a3',border:'1px solid #a5b4fc',cursor:'pointer',fontSize:13,fontWeight:600}}>✏️ แก้ไข</button>
+              {u.role!=='admin'?(
+                <button onClick={()=>deleteUser(u.id)} style={{flex:1,padding:'7px 0',borderRadius:8,background:'#fff1f2',color:'#dc2626',border:'1px solid #fca5a5',cursor:'pointer',fontSize:13,fontWeight:600}}>🗑 ลบ</button>
+              ):(
+                <div style={{flex:1,padding:'7px 0',borderRadius:8,background:'#f1f5f9',color:'#94a3b8',border:'1px solid #e2e8f0',fontSize:12,textAlign:'center',display:'flex',alignItems:'center',justifyContent:'center'}}>🔒 ลบไม่ได้</div>
+              )}
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Permission Matrix */}
