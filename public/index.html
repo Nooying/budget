@@ -927,6 +927,29 @@ function LoanPage(){
     else if(r.txn_type==='interest')bankSummary[r.bank].interest+=+r.amount;
   });
 
+  // Summary by loan_type (P/N vs Loan etc.)
+  const typeSummary={};
+  records.forEach(r=>{
+    const lt=r.loan_type||'ไม่ระบุ';
+    if(!typeSummary[lt])typeSummary[lt]={lt,draw:0,repay:0,interest:0};
+    if(r.txn_type==='draw')typeSummary[lt].draw+=+r.amount;
+    else if(r.txn_type==='repay')typeSummary[lt].repay+=+r.amount;
+    else if(r.txn_type==='interest')typeSummary[lt].interest+=+r.amount;
+  });
+
+  // Summary by loan_type x bank (cross table)
+  const crossKey=(lt,bk)=>lt+'|||'+bk;
+  const crossSummary={};
+  records.forEach(r=>{
+    const lt=r.loan_type||'ไม่ระบุ';
+    const k=crossKey(lt,r.bank);
+    if(!crossSummary[k])crossSummary[k]={lt,bank:r.bank,draw:0,repay:0,interest:0};
+    if(r.txn_type==='draw')crossSummary[k].draw+=+r.amount;
+    else if(r.txn_type==='repay')crossSummary[k].repay+=+r.amount;
+    else if(r.txn_type==='interest')crossSummary[k].interest+=+r.amount;
+  });
+  const loanTypes=Object.keys(typeSummary);
+
   const totalDraw=records.filter(r=>r.txn_type==='draw').reduce((s,r)=>s+r.amount,0);
   const totalRepay=records.filter(r=>r.txn_type==='repay').reduce((s,r)=>s+r.amount,0);
   const totalInterest=records.filter(r=>r.txn_type==='interest').reduce((s,r)=>s+r.amount,0);
@@ -976,6 +999,88 @@ function LoanPage(){
               <td style={{textAlign:'right',color:'#7c3aed'}}>฿{fmt(totalBalance)}</td>
             </tr></tfoot>
           </table>
+        </div>
+      )}
+
+      {/* Type Summary */}
+      {loanTypes.length>0&&(
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
+          {/* สรุปตามประเภทวงเงิน */}
+          <div className="card" style={{overflowX:'auto'}}>
+            <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>📋 สรุปตามประเภทวงเงิน (P/N vs Loan)</h3>
+            <table>
+              <thead><tr>
+                <th>ประเภทวงเงิน</th>
+                <th style={{textAlign:'right',color:'#0891b2'}}>เบิกกู้</th>
+                <th style={{textAlign:'right',color:'#16a34a'}}>ชำระคืน</th>
+                <th style={{textAlign:'right',color:'#dc2626'}}>ดอกเบี้ย</th>
+                <th style={{textAlign:'right',color:'#7c3aed',fontWeight:800}}>คงค้าง</th>
+              </tr></thead>
+              <tbody>
+                {loanTypes.map(lt=>{
+                  const t=typeSummary[lt];
+                  const bal=t.draw-t.repay;
+                  const isPn=lt.includes('P/N');
+                  return(
+                    <tr key={lt}>
+                      <td>
+                        <span style={{display:'inline-block',padding:'2px 8px',borderRadius:6,fontSize:12,fontWeight:700,
+                          background:isPn?'#e0f2fe':'#fef9c3',color:isPn?'#0369a1':'#854d0e'}}>
+                          {isPn?'📄 P/N':'🏦 Loan'}
+                        </span>
+                        <span style={{fontSize:12,color:'#64748b',marginLeft:6}}>{lt}</span>
+                      </td>
+                      <td style={{textAlign:'right',color:'#0891b2',fontWeight:600}}>฿{fmt(t.draw)}</td>
+                      <td style={{textAlign:'right',color:'#16a34a',fontWeight:600}}>฿{fmt(t.repay)}</td>
+                      <td style={{textAlign:'right',color:'#dc2626',fontWeight:600}}>฿{fmt(t.interest)}</td>
+                      <td style={{textAlign:'right',color:bal>0?'#7c3aed':'#16a34a',fontWeight:800,fontSize:14}}>฿{fmt(bal)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot><tr>
+                <td style={{fontWeight:700}}>รวมทั้งหมด</td>
+                <td style={{textAlign:'right',color:'#0891b2',fontWeight:700}}>฿{fmt(totalDraw)}</td>
+                <td style={{textAlign:'right',color:'#16a34a',fontWeight:700}}>฿{fmt(totalRepay)}</td>
+                <td style={{textAlign:'right',color:'#dc2626',fontWeight:700}}>฿{fmt(totalInterest)}</td>
+                <td style={{textAlign:'right',color:'#7c3aed',fontWeight:800}}>฿{fmt(totalBalance)}</td>
+              </tr></tfoot>
+            </table>
+          </div>
+
+          {/* สรุป P/N x ธนาคาร */}
+          <div className="card" style={{overflowX:'auto'}}>
+            <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>🔀 สรุปแยก ประเภท × ธนาคาร</h3>
+            <table>
+              <thead><tr>
+                <th>ประเภท</th>
+                <th>ธนาคาร</th>
+                <th style={{textAlign:'right',color:'#0891b2'}}>เบิกกู้</th>
+                <th style={{textAlign:'right',color:'#16a34a'}}>ชำระคืน</th>
+                <th style={{textAlign:'right',color:'#7c3aed',fontWeight:800}}>คงค้าง</th>
+              </tr></thead>
+              <tbody>
+                {loanTypes.map(lt=>{
+                  const rows=Object.values(crossSummary).filter(c=>c.lt===lt);
+                  const isPn=lt.includes('P/N');
+                  return rows.map((c,idx)=>(
+                    <tr key={lt+c.bank}>
+                      {idx===0&&<td rowSpan={rows.length} style={{verticalAlign:'top',paddingTop:10}}>
+                        <span style={{display:'inline-block',padding:'2px 8px',borderRadius:6,fontSize:11,fontWeight:700,
+                          background:isPn?'#e0f2fe':'#fef9c3',color:isPn?'#0369a1':'#854d0e'}}>
+                          {isPn?'📄 P/N':'🏦 Loan'}
+                        </span>
+                      </td>}
+                      <td style={{fontSize:13}}>{c.bank}</td>
+                      <td style={{textAlign:'right',color:'#0891b2',fontSize:13}}>฿{fmt(c.draw)}</td>
+                      <td style={{textAlign:'right',color:'#16a34a',fontSize:13}}>฿{fmt(c.repay)}</td>
+                      <td style={{textAlign:'right',color:c.draw-c.repay>0?'#7c3aed':'#16a34a',fontWeight:700}}>฿{fmt(c.draw-c.repay)}</td>
+                    </tr>
+                  ));
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
