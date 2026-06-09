@@ -3034,6 +3034,10 @@ function Layout({user,onLogout}){
               <div style={{fontWeight:700,fontSize:13}}>{user.name}</div>
               <span className={'badge '+ROLE_COLOR[user.role]} style={{fontSize:11,marginTop:4,display:'inline-flex'}}>{ROLE_LABEL[user.role]}</span>
             </div>}
+            {!collapsed&&<button onClick={syncToServer} style={{display:'flex',alignItems:'center',gap:8,background:'rgba(16,185,129,.25)',border:'1px solid rgba(16,185,129,.5)',color:'#a7f3d0',cursor:'pointer',fontSize:12,borderRadius:8,padding:'6px 10px',marginBottom:8,width:'100%'}}
+              onMouseOver={e=>e.currentTarget.style.background='rgba(16,185,129,.45)'} onMouseOut={e=>e.currentTarget.style.background='rgba(16,185,129,.25)'}>
+              <span>☁️</span><span>Sync ขึ้น Server</span>
+            </button>}
             {!collapsed&&<button onClick={exportAllData} style={{display:'flex',alignItems:'center',gap:8,background:'rgba(139,92,246,.25)',border:'1px solid rgba(139,92,246,.5)',color:'#e9d5ff',cursor:'pointer',fontSize:12,borderRadius:8,padding:'6px 10px',marginBottom:8,width:'100%'}}
               onMouseOver={e=>e.currentTarget.style.background='rgba(139,92,246,.45)'} onMouseOut={e=>e.currentTarget.style.background='rgba(139,92,246,.25)'}>
               <span>📦</span><span>ส่งออกข้อมูลทั้งหมด</span>
@@ -3053,6 +3057,30 @@ function Layout({user,onLogout}){
     </UserCtx.Provider>
     </div>
   );
+}
+
+/* ====== SYNC TO SERVER ====== */
+function syncToServer(){
+  // เก็บทุก key จาก localStorage ที่เกี่ยวกับแอป
+  const DATA_KEYS=['actual_records','loan_records','daily_cashflow','cf_budgets','cf_month_open',
+    'bank_opening','app_users','rev_budgets','exp_budgets','daily_plan'];
+  const payload={};
+  DATA_KEYS.forEach(k=>{
+    const v=localStorage.getItem(k);
+    if(v)payload[k]=v;
+  });
+  if(Object.keys(payload).length===0){alert('ไม่มีข้อมูลใน localStorage');return;}
+  fetch('/api/sync',{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload)
+  })
+  .then(r=>r.json())
+  .then(d=>{
+    if(d.ok)alert('✅ Sync สำเร็จ! อัพโหลด '+d.synced+' รายการขึ้น Server\nเครื่องอื่นจะเห็นข้อมูลเมื่อ Refresh หน้า');
+    else alert('❌ Sync ล้มเหลว: '+(d.error||'ไม่มี Database'));
+  })
+  .catch(()=>alert('❌ เชื่อมต่อ Server ไม่ได้'));
 }
 
 /* ====== EXPORT ALL DATA (Share to Friend) ====== */

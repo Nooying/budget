@@ -112,5 +112,51 @@ def set_data():
         print(f'set_data error: {e}')
         return jsonify({'error': str(e)}), 500
 
+# ---- API: status / health check ----
+@app.route('/api/status', methods=['GET'])
+def status():
+    db_ok = False
+    row_count = 0
+    keys = []
+    if DATABASE_URL:
+        try:
+            conn = get_db()
+            cur = conn.cursor()
+            cur.execute('SELECT key FROM app_data ORDER BY key')
+            rows = cur.fetchall()
+            conn.close()
+            db_ok = True
+            row_count = len(rows)
+            keys = [r[0] for r in rows]
+        except Exception as e:
+            return jsonify({'db_connected': False, 'error': str(e), 'DATABASE_URL_set': True})
+    return jsonify({
+        'db_connected': db_ok,
+        'DATABASE_URL_set': bool(DATABASE_URL),
+        'row_count': row_count,
+        'keys': keys,
+    })
+
+# ---- API: bulk sync (push multiple keys at once) ----
+@app.route('/api/sync', methods=['POST'])
+def bulk_sync():
+    if not DATABASE_URL:
+        return jsonify({'ok': False, 'error': 'No DATABASE_URL'})
+    try:
+        data = request.json  # {key: value, ...}
+        conn = get_db()
+        cur = conn.cursor()
+        for key, value in data.items():
+            cur.execute('''
+                INSERT INTO app_data (key, value, updated_at)
+                VALUES (%s, %s, NOW())
+                ON CONFLICT (key) DO UPDATE SET value=%s, updated_at=NOW()
+            ''', (key, value, value))
+        conn.commit()
+        conn.close()
+        return jsonify({'ok': True, 'synced': len(data)})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
+
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=PORT, debug=False)
