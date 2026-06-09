@@ -148,6 +148,15 @@ const USERS_DB=[
 const ROLE_LABEL={admin:'Admin',finance_manager:'Finance Manager',dept_manager:'Dept. Manager',executive:'Executive'};
 const ROLE_COLOR={admin:'badge-red',finance_manager:'badge-purple',dept_manager:'badge-yellow',executive:'badge-green'};
 
+/* ====== USER CONTEXT & HELPERS ====== */
+const UserCtx=React.createContext(null);
+// Admin และ Finance Manager เห็นข้อมูลทุกคน; Dept Manager / Executive เห็นแค่ตัวเอง
+const canSeeAll=u=>u&&(u.role==='admin'||u.role==='finance_manager');
+const filterOwn=(recs,u)=>canSeeAll(u)?recs:recs.filter(r=>!r.created_by||r.created_by===u.username);
+// Users stored in localStorage (admin can add real users that persist)
+const getAppUsers=()=>ls.get('app_users',USERS_DB);
+const saveAppUsers=arr=>ls.set('app_users',arr);
+
 /* ====== UTILS ====== */
 const fmt=n=>new Intl.NumberFormat('th-TH').format(Math.round(n||0));
 const fmtM=n=>{const a=Math.abs(n||0);if(a>=1e6)return (n/1e6).toFixed(1)+'M';if(a>=1e3)return (n/1e3).toFixed(0)+'K';return fmt(n);};
@@ -173,11 +182,13 @@ const ls={
 };
 
 /* ====== MONTHLY_DATA — อ่านจาก localStorage จริง ====== */
-function buildMonthlyData(yearParam){
+function buildMonthlyData(yearParam,usernameFilter){
   // Budget: ใช้ cf_budgets (Budget CF) เป็นแหล่งเดียว
   const cfBudgets=ls.get('cf_budgets',[]);
-  const actuals=ls.get('actual_records',[]);
-  const dailyCF=ls.get('daily_cashflow',[]);
+  const allActuals=ls.get('actual_records',[]);
+  const allDailyCF=ls.get('daily_cashflow',[]);
+  const actuals=usernameFilter?allActuals.filter(r=>!r.created_by||r.created_by===usernameFilter):allActuals;
+  const dailyCF=usernameFilter?allDailyCF.filter(r=>!r.created_by||r.created_by===usernameFilter):allDailyCF;
   const yr=(yearParam||new Date().getFullYear()).toString();
   return Array.from({length:12},(_,i)=>{
     const m=i+1;
@@ -315,7 +326,7 @@ function LoginPage({onLogin}){
   function handle(e){
     e.preventDefault();setLoading(true);setErr('');
     setTimeout(()=>{
-      const u=USERS_DB.find(u=>u.username===form.username&&u.password===form.password);
+      const u=getAppUsers().find(u=>u.username===form.username&&u.password===form.password);
       if(u)onLogin(u);else setErr('ชื่อผู้ใช้หรือรหัสผ่านไม่ถูกต้อง');
       setLoading(false);
     },500);
@@ -363,11 +374,13 @@ function LoginPage({onLogin}){
 
 /* ====== DASHBOARD ====== */
 function Dashboard(){
+  const curUser=React.useContext(UserCtx);
   const curYear=new Date().getFullYear();
   const [filterMonth,setFilterMonth]=useState(''); // '' = ทุกเดือน
   const [filterYear,setFilterYear]=useState(curYear.toString());
 
-  const md=buildMonthlyData(filterYear);
+  const uf=canSeeAll(curUser)?null:curUser?.username;
+  const md=buildMonthlyData(filterYear,uf);
   const filtered=filterMonth?md.filter(m=>m.month===+filterMonth):md;
   const totals={
     rev_budget:filtered.reduce((s,m)=>s+m.rev_budget,0),rev_actual:filtered.reduce((s,m)=>s+m.rev_actual,0),
@@ -1241,8 +1254,10 @@ function LoanPage(){
 
 /* ====== ACTUAL ENTRY ====== */
 function ActualEntry(){
+  const curUser=React.useContext(UserCtx);
   const [tab,setTab]=useState('revenue');
-  const [records,setRecords]=useState(()=>ls.get('actual_records',[]));
+  // Admin/Finance เห็นทั้งหมด, คนอื่นเห็นแค่ของตัวเอง
+  const [records,setRecords]=useState(()=>filterOwn(ls.get('actual_records',[]),curUser));
   const [form,setForm]=useState({dept:DEPARTMENTS[0],cat:REV_CATS[0],date:'',amount:'',ref:'',desc:'',vendor:''});
   const [msg,setMsg]=useState('');
   const [filterMonth,setFilterMonth]=useState('');
@@ -1250,10 +1265,20 @@ function ActualEntry(){
 
   useEffect(()=>{setForm(f=>({...f,cat:(tab==='revenue'?REV_CATS:EXP_CATS)[0]}));setSelected(new Set());},[tab]);
 
-  function persist(nr){setRecords(nr);ls.set('actual_records',nr);}
+  // persist: admin saves all, user saves only own records merged with others
+  function persist(nr){
+    if(canSeeAll(curUser)){
+      setRecords(nr);ls.set('actual_records',nr);
+    }else{
+      const all=ls.get('actual_records',[]);
+      const others=all.filter(r=>r.created_by&&r.created_by!==curUser.username);
+      ls.set('actual_records',[...others,...nr]);
+      setRecords(nr);
+    }
+  }
   function save(e){
     e.preventDefault();
-    persist([...records,{id:Date.now(),type:tab,...form,amount:+form.amount}]);
+    persist([...records,{id:Date.now(),type:tab,...form,amount:+form.amount,created_by:curUser.username}]);
     setMsg('✅ บันทึกสำเร็จ');setForm(f=>({...f,amount:'',ref:'',desc:'',vendor:''}));
     setTimeout(()=>setMsg(''),3000);
   }
@@ -1275,6 +1300,7 @@ function ActualEntry(){
       id:Date.now()+i,
       type:tab,
       source:'manual',
+      created_by:curUser.username,
       dept:r['แผนก']||r.dept||DEPARTMENTS[0],
       cat:r['ประเภทรายรับ']||r['ประเภทรายจ่าย']||r['หมวด']||r.cat||(tab==='revenue'?REV_CATS[0]:EXP_CATS[0]),
       date:r['วันที่']||r.date||today(),
@@ -1375,9 +1401,11 @@ function ActualEntry(){
         <table>
           <thead><tr>
             <th style={{width:36}}><input type="checkbox" checked={selected.size===filtered.length&&filtered.length>0} onChange={()=>toggleAll(filtered)}/></th>
-            <th>วันที่</th><th>แผนก</th><th>ประเภท</th><th>Vendor/แหล่งเงิน</th><th>รายละเอียด</th><th style={{textAlign:'right'}}>จำนวนเงิน</th><th>แหล่ง</th><th style={{width:40}}>ลบ</th>
+            <th>วันที่</th><th>แผนก</th><th>ประเภท</th><th>Vendor/แหล่งเงิน</th><th>รายละเอียด</th><th style={{textAlign:'right'}}>จำนวนเงิน</th><th>แหล่ง</th>
+            {canSeeAll(curUser)&&<th>ผู้บันทึก</th>}
+            <th style={{width:40}}>ลบ</th>
           </tr></thead>
-          <tbody>{filtered.length===0?<tr><td colSpan={9} style={{textAlign:'center',padding:32,color:'#94a3b8'}}>ยังไม่มีข้อมูล</td></tr>:
+          <tbody>{filtered.length===0?<tr><td colSpan={canSeeAll(curUser)?10:9} style={{textAlign:'center',padding:32,color:'#94a3b8'}}>ยังไม่มีข้อมูล</td></tr>:
             filtered.map(r=>(
               <tr key={r.id} style={{background:r.source==='loan_auto'?'#fffbeb':selected.has(r.id)?'#faf5ff':''}}>
                 <td><input type="checkbox" checked={selected.has(r.id)} onChange={()=>toggleSel(r.id)}/></td>
@@ -1388,6 +1416,7 @@ function ActualEntry(){
                 <td style={{maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:12}}>{r.desc||r.ref||'-'}</td>
                 <td style={{textAlign:'right',fontWeight:700,color:tab==='revenue'?'#16a34a':'#dc2626'}}>฿{fmt(r.amount)}</td>
                 <td><span style={{fontSize:10,padding:'2px 6px',borderRadius:4,background:r.source==='loan_auto'?'#fef9c3':'#f1f5f9',color:r.source==='loan_auto'?'#92400e':'#64748b'}}>{r.source==='loan_auto'?'🔗เงินกู้':'✏️บันทึก'}</span></td>
+                {canSeeAll(curUser)&&<td style={{fontSize:11,color:'#64748b'}}>{r.created_by?('👤 '+r.created_by):'—'}</td>}
                 <td><button onClick={()=>{if(window.confirm('ลบรายการนี้?'))del(r.id);}} style={{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:16}}>🗑</button></td>
               </tr>
             ))
@@ -2105,11 +2134,13 @@ function DailyCashFlow(){
 
 /* ====== COMPARISON ====== */
 function Comparison(){
+  const curUser=React.useContext(UserCtx);
   const curYear=new Date().getFullYear();
   const [monthFilter,setMonthFilter]=useState('');
   const [typeFilter,setTypeFilter]=useState('');
   const [yearFilter,setYearFilter]=useState(curYear.toString());
-  const monthlyData=buildMonthlyData(yearFilter);
+  const uf=canSeeAll(curUser)?null:curUser?.username;
+  const monthlyData=buildMonthlyData(yearFilter,uf);
 
   const compData=monthlyData.flatMap(m=>[
     {month:m.month,label:MONTHS_EN[m.month-1],dept:'Sales',cat:'Product Sales',type:'revenue',
@@ -2186,13 +2217,14 @@ function Comparison(){
 
 /* ====== REPORTS ====== */
 function Reports(){
+  const curUser=React.useContext(UserCtx);
   const curYear=new Date().getFullYear();
   const [reportYear,setReportYear]=useState(curYear.toString());
   const [reportTab,setReportTab]=useState('pl'); // pl | cashpos | budutil | loan
   const [quarter,setQuarter]=useState(0); // 0=ทั้งปี 1-4=Q1-Q4
   const qMonths={0:[1,2,3,4,5,6,7,8,9,10,11,12],1:[1,2,3],2:[4,5,6],3:[7,8,9],4:[10,11,12]};
-
-  const allMD=buildMonthlyData(reportYear);
+  const uf=canSeeAll(curUser)?null:curUser?.username;
+  const allMD=buildMonthlyData(reportYear,uf);
   const md=quarter?allMD.filter(m=>qMonths[quarter].includes(m.month)):allMD;
   const totals=md.reduce((a,m)=>({rb:a.rb+m.rev_budget,ra:a.ra+m.rev_actual,eb:a.eb+m.exp_budget,ea:a.ea+m.exp_actual}),{rb:0,ra:0,eb:0,ea:0});
   const gpm=totals.ra>0?((totals.ra-totals.ea)/totals.ra*100):0;
@@ -2487,38 +2519,127 @@ function Reports(){
 
 /* ====== USERS ====== */
 function Users(){
-  const [users,setUsers]=useState([...USERS_DB]);
-  const [form,setForm]=useState({name:'',username:'',email:'',password:'',role:'dept_manager',dept:'Finance'});
+  const curUser=React.useContext(UserCtx);
+  const [users,setUsers]=useState(()=>getAppUsers());
+  const [form,setForm]=useState({name:'',username:'',email:'',password:'',role:'dept_manager',dept:DEPARTMENTS[0]});
   const [msg,setMsg]=useState('');
-  const PERMS=[['Dashboard',true,true,true,true],['งบรายรับ (แก้ไข)',true,true,false,false],['งบรายจ่าย (แก้ไข)',true,true,true,false],['บันทึกผลจริง',true,true,true,false],['เงินกู้',true,true,false,false],['Cash Flow รายวัน',true,true,true,false],['Budget vs Actual',true,true,true,true],['รายงาน',true,true,false,true],['จัดการผู้ใช้',true,false,false,false]];
-  function addUser(e){e.preventDefault();setUsers(u=>[...u,{id:Date.now(),...form}]);setMsg('✅ เพิ่มผู้ใช้สำเร็จ');setTimeout(()=>setMsg(''),3000);}
+  const [editPw,setEditPw]=useState(null);
+  const [newPw,setNewPw]=useState('');
+
+  const PERMS=[
+    ['Dashboard','✅','✅','✅','✅'],
+    ['Budget CF (แก้ไข)','✅','✅','❌','❌'],
+    ['บันทึกผลจริง — เห็นของตัวเอง','✅','✅','✅','✅'],
+    ['บันทึกผลจริง — เห็นทุกคน','✅','✅','❌','❌'],
+    ['เงินกู้','✅','✅','❌','❌'],
+    ['Cash Flow รายวัน','✅','✅','✅','❌'],
+    ['Budget vs Actual','✅','✅','✅','✅'],
+    ['รายงาน — เห็นทุกคน','✅','✅','❌','✅'],
+    ['จัดการผู้ใช้','✅','❌','❌','❌'],
+  ];
+
+  function addUser(e){
+    e.preventDefault();
+    if(users.find(u=>u.username===form.username)){setMsg('❌ Username นี้มีอยู่แล้ว');return;}
+    const nr=[...users,{id:Date.now(),...form}];
+    setUsers(nr);saveAppUsers(nr);
+    setMsg('✅ เพิ่มผู้ใช้ '+form.name+' สำเร็จ');
+    setForm({name:'',username:'',email:'',password:'',role:'dept_manager',dept:DEPARTMENTS[0]});
+    setTimeout(()=>setMsg(''),4000);
+  }
+
+  function deleteUser(id){
+    if(users.find(u=>u.id===id)?.role==='admin'){alert('ไม่สามารถลบ Admin ได้');return;}
+    if(!window.confirm('ลบผู้ใช้นี้?'))return;
+    const nr=users.filter(u=>u.id!==id);
+    setUsers(nr);saveAppUsers(nr);
+  }
+
+  function savePw(id){
+    if(!newPw||newPw.length<4){setMsg('❌ รหัสผ่านต้องมีอย่างน้อย 4 ตัว');return;}
+    const nr=users.map(u=>u.id===id?{...u,password:newPw}:u);
+    setUsers(nr);saveAppUsers(nr);
+    setEditPw(null);setNewPw('');setMsg('✅ เปลี่ยนรหัสผ่านสำเร็จ');
+    setTimeout(()=>setMsg(''),3000);
+  }
+
   return(
     <div style={{padding:24,maxWidth:1400,margin:'0 auto'}}>
-      <div style={{marginBottom:24}}><h1 style={{fontSize:22,fontWeight:800,color:'#2e1065',margin:0}}>👥 ผู้ใช้งานระบบ</h1></div>
-      <div className="card" style={{marginBottom:16}}>
-        <h2 style={{fontWeight:700,fontSize:15,marginBottom:16,color:'#4c1d95'}}>เพิ่มผู้ใช้งาน</h2>
-        <form onSubmit={addUser} style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:12,alignItems:'end'}}>
-          <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>ชื่อ</label><input placeholder="Full name" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} required/></div>
-          <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>Username</label><input placeholder="username" value={form.username} onChange={e=>setForm(f=>({...f,username:e.target.value}))} required/></div>
-          <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>Email</label><input type="email" placeholder="email" value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))} required/></div>
-          <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>Password</label><input type="password" placeholder="••••••••" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} required/></div>
-          <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>สิทธิ์</label><select value={form.role} onChange={e=>setForm(f=>({...f,role:e.target.value}))}>{Object.entries(ROLE_LABEL).map(([v,l])=><option key={v} value={v}>{l}</option>)}</select></div>
-          <button type="submit" className="btn btn-primary">เพิ่ม</button>
-        </form>
-        {msg&&<div style={{marginTop:10,fontSize:13}}>{msg}</div>}
+      <div style={{marginBottom:24}}>
+        <h1 style={{fontSize:22,fontWeight:800,color:'#2e1065',margin:0}}>👥 ผู้ใช้งานระบบ</h1>
+        <p style={{fontSize:13,color:'#64748b',marginTop:4}}>Admin/Finance เห็นข้อมูลทุกคน | Dept.Manager/Executive เห็นเฉพาะที่ตัวเองบันทึก</p>
       </div>
+
+      {msg&&<div style={{marginBottom:12,padding:'10px 16px',borderRadius:8,background:msg.startsWith('❌')?'#fff1f2':'#f0fdf4',color:msg.startsWith('❌')?'#dc2626':'#16a34a',fontWeight:600,fontSize:13}}>{msg}</div>}
+
+      {/* Add User */}
       <div className="card" style={{marginBottom:16}}>
+        <h2 style={{fontWeight:700,fontSize:15,marginBottom:16,color:'#4c1d95'}}>➕ เพิ่มผู้ใช้งานใหม่</h2>
+        <form onSubmit={addUser}>
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(155px,1fr))',gap:12,marginBottom:12,alignItems:'end'}}>
+            <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>ชื่อ-นามสกุล *</label><input placeholder="Full name" value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} required/></div>
+            <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>Username *</label><input placeholder="username" value={form.username} onChange={e=>setForm(f=>({...f,username:e.target.value.toLowerCase().replace(/\s/g,'')}))} required/></div>
+            <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>Email</label><input type="email" placeholder="email@company.com" value={form.email} onChange={e=>setForm(f=>({...f,email:e.target.value}))}/></div>
+            <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>Password *</label><input type="password" placeholder="min 4 ตัว" value={form.password} onChange={e=>setForm(f=>({...f,password:e.target.value}))} required/></div>
+            <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>สิทธิ์</label>
+              <select value={form.role} onChange={e=>setForm(f=>({...f,role:e.target.value}))}>
+                {Object.entries(ROLE_LABEL).map(([v,l])=><option key={v} value={v}>{l}</option>)}
+              </select>
+            </div>
+            <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>แผนก</label>
+              <select value={form.dept} onChange={e=>setForm(f=>({...f,dept:e.target.value}))}>
+                {DEPARTMENTS.map(d=><option key={d}>{d}</option>)}
+              </select>
+            </div>
+            <button type="submit" className="btn btn-primary" style={{alignSelf:'end'}}>+ เพิ่ม</button>
+          </div>
+        </form>
+      </div>
+
+      {/* User Table */}
+      <div className="card" style={{marginBottom:16,overflowX:'auto'}}>
+        <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>รายชื่อผู้ใช้งาน ({users.length} คน)</h3>
         <table>
-          <thead><tr><th>ชื่อ</th><th>Username</th><th>Email</th><th>สิทธิ์</th><th>สถานะ</th></tr></thead>
-          <tbody>{users.map(u=><tr key={u.id}><td style={{fontWeight:600}}>{u.name}</td><td style={{color:'#64748b'}}>@{u.username}</td><td style={{color:'#64748b'}}>{u.email}</td><td><span className={`badge ${ROLE_COLOR[u.role]||'badge-purple'}`}>{ROLE_LABEL[u.role]||u.role}</span></td><td><span className="badge badge-green">ใช้งาน</span></td></tr>)}</tbody>
+          <thead><tr>
+            <th>ชื่อ</th><th>Username</th><th>Email</th><th>แผนก</th><th>สิทธิ์</th>
+            <th style={{textAlign:'center'}}>เห็นข้อมูล</th><th>เปลี่ยนรหัส</th><th style={{width:40}}>ลบ</th>
+          </tr></thead>
+          <tbody>{users.map(u=>(
+            <tr key={u.id}>
+              <td style={{fontWeight:600}}>{u.name}</td>
+              <td style={{color:'#64748b',fontFamily:'monospace',fontSize:12}}>@{u.username}</td>
+              <td style={{color:'#64748b',fontSize:12}}>{u.email||'-'}</td>
+              <td style={{fontSize:12}}>{u.dept||'-'}</td>
+              <td><span className={'badge '+(ROLE_COLOR[u.role]||'badge-purple')} style={{fontSize:11}}>{ROLE_LABEL[u.role]||u.role}</span></td>
+              <td style={{textAlign:'center',fontSize:12}}>{canSeeAll(u)?<span style={{color:'#7c3aed',fontWeight:700}}>👁 ทุกคน</span>:<span style={{color:'#64748b'}}>👤 ตัวเอง</span>}</td>
+              <td>
+                {editPw===u.id?(
+                  <div style={{display:'flex',gap:4,alignItems:'center'}}>
+                    <input type="password" placeholder="รหัสใหม่" value={newPw} onChange={e=>setNewPw(e.target.value)} style={{width:90,fontSize:12,padding:'3px 6px',borderRadius:6,border:'1px solid #d1d5db'}}/>
+                    <button onClick={()=>savePw(u.id)} style={{fontSize:11,padding:'3px 8px',borderRadius:6,background:'#16a34a',color:'#fff',border:'none',cursor:'pointer'}}>✓</button>
+                    <button onClick={()=>{setEditPw(null);setNewPw('');}} style={{fontSize:11,padding:'3px 6px',borderRadius:6,background:'#e5e7eb',border:'none',cursor:'pointer'}}>✕</button>
+                  </div>
+                ):(
+                  <button onClick={()=>setEditPw(u.id)} style={{fontSize:11,padding:'3px 10px',borderRadius:6,background:'#e0e7ff',color:'#3730a3',border:'1px solid #a5b4fc',cursor:'pointer'}}>🔑 เปลี่ยน</button>
+                )}
+              </td>
+              <td>
+                {u.role!=='admin'?<button onClick={()=>deleteUser(u.id)} style={{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:16}}>🗑</button>:<span style={{fontSize:12,color:'#94a3b8'}}>—</span>}
+              </td>
+            </tr>
+          ))}</tbody>
         </table>
       </div>
+
+      {/* Permission Matrix */}
       <div className="card">
-        <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>สิทธิ์การเข้าถึง</h3>
+        <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>🔐 สิทธิ์การเข้าถึงตาม Role</h3>
         <div style={{overflowX:'auto'}}>
           <table>
             <thead><tr><th>ฟังก์ชัน</th>{Object.values(ROLE_LABEL).map(r=><th key={r} style={{textAlign:'center'}}>{r}</th>)}</tr></thead>
-            <tbody>{PERMS.map(([f,...ps])=><tr key={f}><td style={{fontWeight:600}}>{f}</td>{ps.map((p,i)=><td key={i} style={{textAlign:'center'}}>{p?'✅':'❌'}</td>)}</tr>)}</tbody>
+            <tbody>{PERMS.map(([f,...ps])=>(
+              <tr key={f}><td style={{fontWeight:600,fontSize:13}}>{f}</td>{ps.map((p,i)=><td key={i} style={{textAlign:'center',fontSize:15}}>{p}</td>)}</tr>
+            ))}</tbody>
           </table>
         </div>
       </div>
@@ -2528,6 +2649,7 @@ function Users(){
 
 /* ====== BANK BALANCE PAGE ====== */
 function BankBalance(){
+  const curUser=React.useContext(UserCtx);
   const curYear=new Date().getFullYear();
   const [filterYear,setFilterYear]=useState(curYear.toString());
   const [filterMonth,setFilterMonth]=useState(String(new Date().getMonth()+1));
@@ -2545,8 +2667,8 @@ function BankBalance(){
     setEditOpenKey(null);
   }
 
-  const actuals=ls.get('actual_records',[]);
-  const dailyCF=ls.get('daily_cashflow',[]);
+  const actuals=filterOwn(ls.get('actual_records',[]),curUser);
+  const dailyCF=filterOwn(ls.get('daily_cashflow',[]),curUser);
 
   const allTxn=[
     ...actuals.filter(r=>r.date&&r.bank).map(r=>({
@@ -2819,7 +2941,8 @@ function Layout({user,onLogout}){
         <button onClick={onLogout} style={{background:'none',border:'none',color:'#c4b5fd',fontSize:18,cursor:'pointer'}}>🚪</button>
       </div>
 
-      <div style={{display:'flex',flex:1,overflow:'hidden',position:'relative'}}>
+      <UserCtx.Provider value={user}>
+    <div style={{display:'flex',flex:1,overflow:'hidden',position:'relative'}}>
         {/* Overlay for mobile drawer */}
         {mobOpen&&<div id="mobile-overlay" onClick={()=>setMobOpen(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',zIndex:150}}/>}
 
@@ -2858,6 +2981,7 @@ function Layout({user,onLogout}){
           <Current/>
         </main>
       </div>
+    </UserCtx.Provider>
     </div>
   );
 }
