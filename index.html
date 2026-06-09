@@ -1309,28 +1309,11 @@ function DailyCashFlow(){
   });
   const cfBudgetMonths=Object.values(cfBudgetByMonth).sort((a,b)=>a.month.localeCompare(b.month));
 
-  // ---- Aggregate: actual_records + daily_cashflow manual entries ----
-  const actualRecs=ls.get('actual_records',[]);
-  // Map actual_records to cash flow entries (revenue=inflow, expense=outflow)
-  const actualAsCF=actualRecs
-    .filter(r=>r.date&&r.date.startsWith(filterYear))
-    .map(r=>({
-      id:'act_'+r.id,
-      date:r.date,
-      type:r.type==='revenue'?'inflow':'outflow',
-      category:r.cat,
-      bank:r.vendor||r.bank||'-',
-      amount:r.amount,
-      desc:r.desc||'',
-      ref:r.ref||'',
-      source:r.source==='loan_auto'?'🔗เงินกู้':'📝บันทึกจริง',
-      _fromActual:true,
-    }));
-  // Combine: manual daily_cashflow + actual_records (avoid double counting: daily_cashflow entries marked as from_actual are skipped)
+  // ---- Daily cashflow: ใช้เฉพาะ manual entries เท่านั้น (ไม่ดึงจากบันทึกผลจริง) ----
   const manualCF=dailyPlan.filter(r=>!r._fromActual);
 
   // ---- Compute all date rows with running opening balance ----
-  const allSorted=[...manualCF,...actualAsCF].filter(r=>r.date&&r.date.startsWith(filterYear)).sort((a,b)=>a.date.localeCompare(b.date));
+  const allSorted=[...manualCF].filter(r=>r.date&&r.date.startsWith(filterYear)).sort((a,b)=>a.date.localeCompare(b.date));
 
   // Group all records by date (ignoring month filter for running balance)
   const allByDate={};
@@ -1441,7 +1424,7 @@ function DailyCashFlow(){
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
         <div>
           <h1 style={{fontSize:22,fontWeight:800,color:'#2e1065',margin:0}}>📅 กระแสเงินสด — รายวัน / เดือน / ปี</h1>
-          <p style={{color:'#64748b',fontSize:13,marginTop:4}}>🔗 เชื่อมจาก: บันทึกผลจริง + เงินกู้ อัตโนมัติ | Manual Entry เพิ่มเติมได้</p>
+          <p style={{color:'#64748b',fontSize:13,marginTop:4}}>✏️ บันทึกรายการรับ/จ่ายเงินสดรายวันด้วยตนเอง</p>
         </div>
         <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
           <select value={filterYear} onChange={e=>setFilterYear(e.target.value)} style={{width:90}}>
@@ -1572,16 +1555,16 @@ function DailyCashFlow(){
                       <td style={{fontSize:11,color:'#64748b'}}>{d.items.length} รายการ {expandDate===d.date?'▲':'▼'}</td>
                     </tr>
                     {expandDate===d.date&&d.items.map(r=>(
-                      <tr key={r.id} style={{background:r._fromActual?'#f0fdf4':'#fafbff'}}>
+                      <tr key={r.id} style={{background:'#fafbff'}}>
                         <td colSpan={2} style={{paddingLeft:32,fontSize:12,color:'#64748b'}}>
                           {r.type==='inflow'?'💰':'💸'} {r.category}
-                          <span style={{marginLeft:6,fontSize:10,padding:'1px 5px',borderRadius:3,background:r._fromActual?'#dcfce7':'#f1f5f9',color:r._fromActual?'#166534':'#64748b'}}>{r.source||'✏️Manual'}</span>
+                          <span style={{marginLeft:6,fontSize:10,padding:'1px 5px',borderRadius:3,background:'#f1f5f9',color:'#64748b'}}>✏️Manual</span>
                         </td>
                         <td style={{textAlign:'right',color:'#16a34a',fontSize:12}}>{r.type==='inflow'?`฿${fmt(r.amount)}`:'-'}</td>
                         <td style={{textAlign:'right',color:'#dc2626',fontSize:12}}>{r.type==='outflow'?`฿${fmt(r.amount)}`:'-'}</td>
                         <td style={{fontSize:12,color:'#94a3b8'}}>{r.bank||'-'}</td>
                         <td style={{fontSize:12,color:'#64748b'}} colSpan={1}>{r.desc||'-'}</td>
-                        <td>{!r._fromActual&&<button onClick={e=>{e.stopPropagation();del(r.id);}} style={{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:13}}>🗑</button>}</td>
+                        <td><button onClick={e=>{e.stopPropagation();del(r.id);}} style={{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:13}}>🗑</button></td>
                       </tr>
                     ))}
                   </React.Fragment>
