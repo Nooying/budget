@@ -1,5 +1,5 @@
 from flask import Flask, Response, request, jsonify
-import os
+import os, json
 
 app = Flask(__name__)
 PORT = int(os.environ.get('PORT', 8080))
@@ -32,19 +32,53 @@ def init_db():
 
 init_db()
 
-# ---- Serve HTML ----
+# ---- Load HTML template ----
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 HTML_PATH = os.path.join(BASE_DIR, 'public', 'index.html')
 
 with open(HTML_PATH, 'rb') as f:
-    HTML_BYTES = f.read()
-if HTML_BYTES.startswith(b'\xef\xbb\xbf'):
-    HTML_BYTES = HTML_BYTES[3:]
+    raw = f.read()
+if raw.startswith(b'\xef\xbb\xbf'):
+    raw = raw[3:]
+HTML_TEMPLATE = raw.decode('utf-8')
 
+# ---- Load all data from DB ----
+def load_all_from_db():
+    if not DATABASE_URL:
+        return {}
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute('SELECT key, value FROM app_data')
+        rows = cur.fetchall()
+        conn.close()
+        return {r[0]: r[1] for r in rows}
+    except Exception as e:
+        print(f'load_all error: {e}')
+        return {}
+
+# ---- Serve HTML with injected DB data ----
 @app.route('/')
 @app.route('/index.html')
 def index():
-    return Response(HTML_BYTES, status=200, headers={
+    data = load_all_from_db()
+    # Inject as window.__BUDGET_DATA__ so localStorage fallback works on any device
+    data_json = json.dumps(data, ensure_ascii=False)
+    # Escape </script> inside JSON
+    data_json = data_json.replace('</script>', '<\\/script>')
+    preload = (
+        '<script>'
+        '(function(){'
+        'var s=' + data_json + ';'
+        'window.__BUDGET_DATA__=s;'
+        'Object.entries(s).forEach(function(e){'
+        'try{localStorage.setItem(e[0],e[1]);}catch(x){}'
+        '});'
+        '})();'
+        '</script>'
+    )
+    html = HTML_TEMPLATE.replace('</head>', preload + '\n</head>', 1)
+    return Response(html.encode('utf-8'), status=200, headers={
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'X-Content-Type-Options': 'nosniff',
@@ -53,18 +87,7 @@ def index():
 # ---- API: get all data ----
 @app.route('/api/all', methods=['GET'])
 def get_all():
-    if not DATABASE_URL:
-        return jsonify({})
-    try:
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute('SELECT key, value FROM app_data')
-        rows = cur.fetchall()
-        conn.close()
-        return jsonify({r[0]: r[1] for r in rows})
-    except Exception as e:
-        print(f'get_all error: {e}')
-        return jsonify({}), 500
+    return jsonify(load_all_from_db())
 
 # ---- API: save one key ----
 @app.route('/api/data', methods=['POST'])
