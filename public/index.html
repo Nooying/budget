@@ -98,8 +98,19 @@ const today=()=>new Date().toISOString().slice(0,10);
 
 /* ====== STORAGE ====== */
 const ls={
-  get:(k,def)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):def;}catch{return def;}},
-  set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}},
+  get:(k,def)=>{
+    try{
+      const v=localStorage.getItem(k);
+      if(v)return JSON.parse(v);
+      // fallback: ถ้า localStorage ไม่ทำงาน (เช่น file://) ใช้ข้อมูลที่ฝังไว้
+      if(window.__BUDGET_DATA__&&window.__BUDGET_DATA__[k])return JSON.parse(window.__BUDGET_DATA__[k]);
+      return def;
+    }catch{return def;}
+  },
+  set:(k,v)=>{
+    try{localStorage.setItem(k,JSON.stringify(v));}catch{}
+    if(window.__BUDGET_DATA__)window.__BUDGET_DATA__[k]=JSON.stringify(v);
+  },
 };
 
 /* ====== MONTHLY_DATA — อ่านจาก localStorage จริง ====== */
@@ -1887,7 +1898,7 @@ function exportAllData(){
     return;
   }
   const dataJSON=JSON.stringify(snapshot).replace(/</g,'\\u003c').replace(/>/g,'\\u003e');
-  const preloadScript=`<script>(function(){var s=${dataJSON};Object.entries(s).forEach(function(e){try{localStorage.setItem(e[0],e[1]);}catch(x){}});})();<\\/script>`;
+  const preloadScript=`<script>(function(){var s=${dataJSON};window.__BUDGET_DATA__=s;Object.entries(s).forEach(function(e){try{localStorage.setItem(e[0],e[1]);}catch(x){}});})();<\\/script>`;
 
   // fetch HTML ต้นฉบับจาก server แล้วฝังข้อมูลเข้าไป
   fetch(window.location.origin+'/')
