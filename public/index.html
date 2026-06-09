@@ -2371,6 +2371,16 @@ function BankBalance(){
   const [selBank,setSelBank]=useState('ทุกธนาคาร');
   const [expandBank,setExpandBank]=useState({});
   const [expandDate,setExpandDate]=useState({});
+  // Opening balance per bank per month: key = 'bankName|YYYY-MM'
+  const [bankOpening,setBankOpening]=useState(()=>ls.get('bank_opening',{}));
+  const [editOpenKey,setEditOpenKey]=useState(null);
+  const [openInput,setOpenInput]=useState('');
+
+  function saveOpening(key,val){
+    const updated={...bankOpening,[key]:val};
+    setBankOpening(updated);ls.set('bank_opening',updated);
+    setEditOpenKey(null);
+  }
 
   const actuals=ls.get('actual_records',[]);
   const dailyCF=ls.get('daily_cashflow',[]);
@@ -2390,8 +2400,10 @@ function BankBalance(){
     })),
   ];
 
-  const bankList=['ทุกธนาคาร',...[...new Set(allTxn.map(r=>r.bank).filter(Boolean))].sort()];
   const prefix=filterYear+'-'+String(filterMonth).padStart(2,'0');
+  // ธนาคารทั้งหมดจากทุกปี (เพื่อให้ตั้งยอดยกมาได้แม้ยังไม่มีรายการเดือนนี้)
+  const allBanks=[...new Set(allTxn.map(r=>r.bank).filter(Boolean))].sort();
+  const bankList=['ทุกธนาคาร',...allBanks];
   const filtered=allTxn.filter(r=>r.date.startsWith(prefix)&&(selBank==='ทุกธนาคาร'||r.bank===selBank));
 
   const bankMap={};
@@ -2404,6 +2416,11 @@ function BankBalance(){
     bankMap[r.bank].totalIn+=r.inflow;
     bankMap[r.bank].totalOut+=r.outflow;
   });
+  // เพิ่มธนาคารที่มียอดยกมาแต่ยังไม่มีรายการเดือนนี้
+  allBanks.forEach(bk=>{
+    const ok=bk+'|'+prefix;
+    if(bankOpening[ok]&&!bankMap[bk])bankMap[bk]={bank:bk,days:{},totalIn:0,totalOut:0};
+  });
 
   const bankRows=Object.values(bankMap).sort((a,b)=>a.bank.localeCompare(b.bank,'th'));
   const toggleBank=bk=>setExpandBank(s=>({...s,[bk]:!s[bk]}));
@@ -2411,19 +2428,30 @@ function BankBalance(){
   const mLabel=MONTHS_TH[+filterMonth-1]+' '+filterYear;
 
   function doExport(){
-    const rows=[['ธนาคาร','วันที่','รับเข้า','จ่ายออก','สุทธิ','หมวด','รายละเอียด','แหล่งข้อมูล']];
-    filtered.sort((a,b)=>a.bank.localeCompare(b.bank)||a.date.localeCompare(b.date)).forEach(r=>{
-      rows.push([r.bank,r.date,r.inflow||0,r.outflow||0,(r.inflow-r.outflow),r.cat,r.desc,r.source]);
+    const rows=[['ธนาคาร','ยอดยกมา','วันที่','รับเข้า','จ่ายออก','สุทธิ','ยอดคงเหลือ','หมวด','รายละเอียด','แหล่งข้อมูล']];
+    bankRows.forEach(b=>{
+      const ok=b.bank+'|'+prefix;
+      const opening=bankOpening[ok]||0;
+      const days=Object.values(b.days).sort((a,c)=>a.date.localeCompare(c.date));
+      let run=opening;
+      days.forEach(d=>{
+        const net=d.inflow-d.outflow;run+=net;
+        d.items.forEach(r=>rows.push([b.bank,opening,r.date,r.inflow||0,r.outflow||0,(r.inflow-r.outflow),run,r.cat,r.desc,r.source]));
+      });
     });
     exportExcel([{name:'Bank Balance',data:rows}],'bank_'+prefix+'.xlsx');
   }
 
+  // Summary cards (all banks in this month + those with opening)
+  const showBanks=selBank==='ทุกธนาคาร'?bankRows:bankRows.filter(b=>b.bank===selBank);
+
   return(
     <div style={{padding:24,maxWidth:1500,margin:'0 auto'}}>
+      {/* Header */}
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20,flexWrap:'wrap',gap:12}}>
         <div>
           <h1 style={{fontSize:22,fontWeight:800,color:'#2e1065',margin:0}}>🏧 ยอดเงินแต่ละธนาคาร</h1>
-          <p style={{fontSize:13,color:'#64748b',marginTop:4}}>รายรับ/จ่าย แยกรายวัน ตามธนาคาร — ดึงจากบันทึกผลจริง + Cash Flow รายวัน</p>
+          <p style={{fontSize:13,color:'#64748b',marginTop:4}}>รายรับ/จ่าย แยกรายวัน ตามธนาคาร | ตั้งยอดยกมาต้นเดือนได้แต่ละธนาคาร</p>
         </div>
         <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
           <select value={filterYear} onChange={e=>setFilterYear(e.target.value)} style={{fontSize:13,padding:'6px 10px',borderRadius:8,border:'1px solid #d1d5db'}}>
@@ -2439,7 +2467,44 @@ function BankBalance(){
         </div>
       </div>
 
-      {bankRows.length===0?(
+      {/* Opening Balance Setting Panel */}
+      <div className="card" style={{marginBottom:20}}>
+        <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>📂 ยอดยกมาต้นเดือน {mLabel} — แยกตามธนาคาร</h3>
+        {allBanks.length===0?(
+          <p style={{color:'#94a3b8',fontSize:13}}>ยังไม่มีข้อมูลธนาคาร — ระบุธนาคารเมื่อกรอกในหน้าบันทึกผลจริง</p>
+        ):(
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:10}}>
+            {BANKS.filter(bk=>selBank==='ทุกธนาคาร'||bk===selBank).map(bk=>{
+              const ok=bk+'|'+prefix;
+              const opening=bankOpening[ok]||0;
+              const isEditing=editOpenKey===ok;
+              return(
+                <div key={bk} style={{background:'#f8f7ff',borderRadius:10,padding:'10px 14px',border:'1px solid #e0e7ff',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+                  <div style={{fontSize:12,fontWeight:700,color:'#6d28d9',minWidth:120}}>🏦 {bk}</div>
+                  {isEditing?(
+                    <React.Fragment>
+                      <input type="number" value={openInput} onChange={e=>setOpenInput(e.target.value)}
+                        style={{width:130,fontSize:13,padding:'4px 8px',borderRadius:6,border:'1px solid #a5b4fc'}}/>
+                      <button onClick={()=>saveOpening(ok,+openInput||0)}
+                        style={{fontSize:12,padding:'4px 10px',borderRadius:6,background:'#16a34a',color:'#fff',border:'none',cursor:'pointer',fontWeight:600}}>✓</button>
+                      <button onClick={()=>setEditOpenKey(null)}
+                        style={{fontSize:12,padding:'4px 8px',borderRadius:6,background:'#e5e7eb',color:'#374151',border:'none',cursor:'pointer'}}>✕</button>
+                    </React.Fragment>
+                  ):(
+                    <React.Fragment>
+                      <span style={{fontSize:14,fontWeight:800,color:opening>=0?'#3730a3':'#dc2626',minWidth:100}}>฿{fmt(opening)}</span>
+                      <button onClick={()=>{setEditOpenKey(ok);setOpenInput(String(opening));}}
+                        style={{fontSize:11,padding:'3px 8px',borderRadius:6,background:'#e0e7ff',color:'#3730a3',border:'1px solid #a5b4fc',cursor:'pointer'}}>✏️ แก้ไข</button>
+                    </React.Fragment>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {showBanks.length===0&&allBanks.length===0?(
         <div className="card" style={{textAlign:'center',padding:48,color:'#94a3b8'}}>
           <div style={{fontSize:48,marginBottom:12}}>🏧</div>
           <div style={{fontWeight:600,fontSize:15,marginBottom:8}}>ไม่มีข้อมูลธนาคาร {mLabel}</div>
@@ -2447,60 +2512,73 @@ function BankBalance(){
         </div>
       ):(
         <div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:12,marginBottom:20}}>
-            {bankRows.map(b=>{
-              const net=b.totalIn-b.totalOut;
+          {/* Summary Cards */}
+          <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(210px,1fr))',gap:12,marginBottom:20}}>
+            {showBanks.map(b=>{
+              const ok=b.bank+'|'+prefix;
+              const opening=bankOpening[ok]||0;
+              const closeBal=opening+b.totalIn-b.totalOut;
               return(
                 <div key={b.bank} onClick={()=>toggleBank(b.bank)}
                   style={{background:expandBank[b.bank]?'#ede9fe':'#fff',borderRadius:12,padding:16,border:'2px solid '+(expandBank[b.bank]?'#7c3aed':'#e5e7eb'),cursor:'pointer'}}>
                   <div style={{fontSize:12,fontWeight:700,color:'#6d28d9',marginBottom:8}}>🏦 {b.bank}</div>
+                  <div style={{fontSize:11,color:'#64748b',marginBottom:4}}>📂 ยอดยกมา: <b style={{color:'#3730a3'}}>฿{fmtM(opening)}</b></div>
                   <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:4,fontSize:11,marginBottom:8}}>
                     <div><div style={{color:'#64748b'}}>รับเข้า</div><div style={{color:'#16a34a',fontWeight:700}}>฿{fmtM(b.totalIn)}</div></div>
                     <div><div style={{color:'#64748b'}}>จ่ายออก</div><div style={{color:'#dc2626',fontWeight:700}}>฿{fmtM(b.totalOut)}</div></div>
                   </div>
                   <div style={{borderTop:'1px solid #e5e7eb',paddingTop:8}}>
-                    <div style={{fontSize:10,color:'#64748b'}}>สุทธิเดือนนี้</div>
-                    <div style={{fontSize:16,fontWeight:800,color:net>=0?'#7c3aed':'#dc2626'}}>{net>=0?'+':''}฿{fmtM(net)}</div>
+                    <div style={{fontSize:10,color:'#64748b'}}>คงเหลือสิ้นเดือน</div>
+                    <div style={{fontSize:16,fontWeight:800,color:closeBal>=0?'#7c3aed':'#dc2626'}}>{closeBal>=0?'+':''}฿{fmtM(closeBal)}</div>
                   </div>
-                  <div style={{fontSize:10,color:'#a78bfa',marginTop:6,textAlign:'center'}}>{expandBank[b.bank]?'▲ ซ่อนรายวัน':'▼ ดูรายวัน'}</div>
+                  <div style={{fontSize:10,color:'#a78bfa',marginTop:6,textAlign:'center'}}>{expandBank[b.bank]?'▲ ซ่อน':'▼ ดูรายวัน'}</div>
                 </div>
               );
             })}
           </div>
 
-          {bankRows.filter(b=>expandBank[b.bank]||selBank!=='ทุกธนาคาร').map(b=>{
+          {/* Detail Tables */}
+          {showBanks.filter(b=>expandBank[b.bank]||selBank!=='ทุกธนาคาร').map(b=>{
+            const ok=b.bank+'|'+prefix;
+            const opening=bankOpening[ok]||0;
             const days=Object.values(b.days).sort((a,c)=>a.date.localeCompare(c.date));
-            let run=0;
-            const daysWithBal=days.map(d=>{const net=d.inflow-d.outflow;run+=net;return{...d,net,runBal:run};});
+            let run=opening;
+            const daysWithBal=days.map(d=>{const net=d.inflow-d.outflow;const openBal=run;run+=net;return{...d,net,openBal,runBal:run};});
+            const closeBal=opening+b.totalIn-b.totalOut;
             return(
               <div key={b.bank} className="card" style={{marginBottom:16,overflowX:'auto'}}>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,flexWrap:'wrap',gap:8}}>
                   <h3 style={{fontWeight:800,fontSize:15,color:'#4c1d95',margin:0}}>🏦 {b.bank} — {mLabel}</h3>
-                  <div style={{display:'flex',gap:16,fontSize:13}}>
+                  <div style={{display:'flex',gap:12,fontSize:13,flexWrap:'wrap'}}>
+                    <span style={{color:'#3730a3',fontWeight:600}}>ยกมา ฿{fmt(opening)}</span>
                     <span style={{color:'#16a34a',fontWeight:700}}>รับ ฿{fmt(b.totalIn)}</span>
                     <span style={{color:'#dc2626',fontWeight:700}}>จ่าย ฿{fmt(b.totalOut)}</span>
-                    <span style={{fontWeight:800,color:b.totalIn-b.totalOut>=0?'#7c3aed':'#dc2626'}}>สุทธิ {b.totalIn-b.totalOut>=0?'+':''}฿{fmt(b.totalIn-b.totalOut)}</span>
+                    <span style={{fontWeight:800,color:closeBal>=0?'#7c3aed':'#dc2626'}}>คงเหลือ {closeBal>=0?'+':''}฿{fmt(closeBal)}</span>
                   </div>
                 </div>
                 <table>
                   <thead>
                     <tr>
                       <th>วันที่</th>
+                      <th style={{textAlign:'right',background:'#e0e7ff',color:'#3730a3'}}>ยอดยกมา 📂</th>
                       <th style={{textAlign:'right',background:'#dcfce7',color:'#166534'}}>รับเข้า 💰</th>
                       <th style={{textAlign:'right',background:'#fee2e2',color:'#991b1b'}}>จ่ายออก 💸</th>
                       <th style={{textAlign:'right',background:'#f3e8ff',color:'#6b21a8'}}>สุทธิวันนี้</th>
-                      <th style={{textAlign:'right',background:'#fef9c3',color:'#854d0e',fontWeight:800}}>ยอดสะสม 🏦</th>
+                      <th style={{textAlign:'right',background:'#fef9c3',color:'#854d0e',fontWeight:800}}>ยอดคงเหลือ 🏦</th>
                       <th>รายการ</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {daysWithBal.map(d=>{
+                    {daysWithBal.length===0?(
+                      <tr><td colSpan={7} style={{textAlign:'center',padding:20,color:'#94a3b8',fontSize:13}}>ไม่มีรายการเดือนนี้ (มียอดยกมา ฿{fmt(opening)})</td></tr>
+                    ):daysWithBal.map(d=>{
                       const dk=b.bank+'|'+d.date;
                       const exp=expandDate[dk];
                       return(
                         <React.Fragment key={d.date}>
                           <tr onClick={()=>toggleDate(b.bank,d.date)} style={{cursor:'pointer'}}>
                             <td style={{fontWeight:700}}>{d.date}</td>
+                            <td style={{textAlign:'right',color:'#3730a3',background:'#f0f0ff',fontWeight:600}}>฿{fmt(d.openBal)}</td>
                             <td style={{textAlign:'right',color:'#16a34a',fontWeight:600}}>{d.inflow?'฿'+fmt(d.inflow):'-'}</td>
                             <td style={{textAlign:'right',color:'#dc2626',fontWeight:600}}>{d.outflow?'฿'+fmt(d.outflow):'-'}</td>
                             <td style={{textAlign:'right',fontWeight:700,color:d.net>=0?'#7c3aed':'#dc2626'}}>{(d.net>=0?'+':'')+fmt(d.net)}</td>
@@ -2509,10 +2587,11 @@ function BankBalance(){
                           </tr>
                           {exp&&d.items.map((r,idx)=>(
                             <tr key={idx} style={{background:'#fafbff'}}>
-                              <td style={{paddingLeft:24,fontSize:12,color:'#64748b'}} colSpan={2}>{r.inflow>0?'💰':'💸'} {r.cat||'-'} <span style={{fontSize:10,color:'#94a3b8',marginLeft:4}}>{r.source}</span></td>
+                              <td style={{paddingLeft:24,fontSize:12,color:'#64748b'}}>{r.inflow>0?'💰':'💸'} {r.cat||'-'}</td>
+                              <td style={{fontSize:10,color:'#94a3b8'}}>{r.source}</td>
                               <td style={{textAlign:'right',color:'#16a34a',fontSize:12}}>{r.inflow?'฿'+fmt(r.inflow):'-'}</td>
                               <td style={{textAlign:'right',color:'#dc2626',fontSize:12}}>{r.outflow?'฿'+fmt(r.outflow):'-'}</td>
-                              <td style={{fontSize:12,color:'#64748b'}}>{r.desc||'-'}</td>
+                              <td colSpan={2} style={{fontSize:12,color:'#64748b'}}>{r.desc||'-'}</td>
                               <td/>
                             </tr>
                           ))}
@@ -2523,10 +2602,11 @@ function BankBalance(){
                   <tfoot>
                     <tr style={{background:'#f5f3ff',fontWeight:700}}>
                       <td>รวม {mLabel}</td>
+                      <td style={{textAlign:'right',color:'#3730a3'}}>฿{fmt(opening)}</td>
                       <td style={{textAlign:'right',color:'#16a34a'}}>฿{fmt(b.totalIn)}</td>
                       <td style={{textAlign:'right',color:'#dc2626'}}>฿{fmt(b.totalOut)}</td>
                       <td style={{textAlign:'right',color:b.totalIn-b.totalOut>=0?'#7c3aed':'#dc2626'}}>{(b.totalIn-b.totalOut>=0?'+':'')+fmt(b.totalIn-b.totalOut)}</td>
-                      <td style={{textAlign:'right',fontWeight:800,color:b.totalIn-b.totalOut>=0?'#16a34a':'#dc2626'}}>฿{fmt(b.totalIn-b.totalOut)}</td>
+                      <td style={{textAlign:'right',fontWeight:800,color:closeBal>=0?'#16a34a':'#dc2626'}}>฿{fmt(closeBal)}</td>
                       <td/>
                     </tr>
                   </tfoot>
