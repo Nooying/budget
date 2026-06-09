@@ -115,19 +115,28 @@ const ls={
 };
 
 /* ====== MONTHLY_DATA — อ่านจาก localStorage จริง ====== */
-function buildMonthlyData(){
+function buildMonthlyData(yearParam){
   const revBudgets=ls.get('rev_budgets',[]);
   const expBudgets=ls.get('exp_budgets',[]);
   const actuals=ls.get('actual_records',[]);
-  const curYear=new Date().getFullYear().toString();
+  const cfBudgets=ls.get('cf_budgets',[]);
+  const dailyCF=ls.get('daily_cashflow',[]);
+  const yr=(yearParam||new Date().getFullYear()).toString();
   return Array.from({length:12},(_,i)=>{
     const m=i+1;
     const mm=String(m).padStart(2,'0');
-    const prefix=`${curYear}-${mm}`;
-    const rev_budget=revBudgets.filter(r=>r.month===m||r.date?.startsWith(prefix)).reduce((s,r)=>s+(+r.amount||0),0);
-    const exp_budget=expBudgets.filter(r=>r.month===m||r.date?.startsWith(prefix)).reduce((s,r)=>s+(+r.amount||0),0);
-    const rev_actual=actuals.filter(r=>r.type==='revenue'&&r.date?.startsWith(prefix)).reduce((s,r)=>s+(+r.amount||0),0);
-    const exp_actual=actuals.filter(r=>r.type==='expense'&&r.date?.startsWith(prefix)).reduce((s,r)=>s+(+r.amount||0),0);
+    const prefix=`${yr}-${mm}`;
+    // งบรายรับ + cf_budgets inflow
+    const rev_budget=revBudgets.filter(r=>r.date?.startsWith(prefix)).reduce((s,r)=>s+(+r.amount||0),0)
+      +cfBudgets.filter(r=>r.date?.startsWith(prefix)&&r.flow==='in').reduce((s,r)=>s+(+r.amount||0),0);
+    // งบรายจ่าย + cf_budgets outflow
+    const exp_budget=expBudgets.filter(r=>r.date?.startsWith(prefix)).reduce((s,r)=>s+(+r.amount||0),0)
+      +cfBudgets.filter(r=>r.date?.startsWith(prefix)&&r.flow==='out').reduce((s,r)=>s+(+r.amount||0),0);
+    // ผลจริง + daily cashflow actual
+    const rev_actual=actuals.filter(r=>r.type==='revenue'&&r.date?.startsWith(prefix)).reduce((s,r)=>s+(+r.amount||0),0)
+      +dailyCF.filter(r=>r.date?.startsWith(prefix)&&r.flow==='in'&&r.entry_type==='actual').reduce((s,r)=>s+(+r.amount||0),0);
+    const exp_actual=actuals.filter(r=>r.type==='expense'&&r.date?.startsWith(prefix)).reduce((s,r)=>s+(+r.amount||0),0)
+      +dailyCF.filter(r=>r.date?.startsWith(prefix)&&r.flow==='out'&&r.entry_type==='actual').reduce((s,r)=>s+(+r.amount||0),0);
     return{month:m,label:MONTHS_EN[i],rev_budget,rev_actual,exp_budget,exp_actual,profit_budget:rev_budget-exp_budget,profit_actual:rev_actual-exp_actual};
   });
 }
@@ -301,10 +310,15 @@ function LoginPage({onLogin}){
 
 /* ====== DASHBOARD ====== */
 function Dashboard(){
-  const md=buildMonthlyData();
+  const curYear=new Date().getFullYear();
+  const [filterMonth,setFilterMonth]=useState(''); // '' = ทุกเดือน
+  const [filterYear,setFilterYear]=useState(curYear.toString());
+
+  const md=buildMonthlyData(filterYear);
+  const filtered=filterMonth?md.filter(m=>m.month===+filterMonth):md;
   const totals={
-    rev_budget:md.reduce((s,m)=>s+m.rev_budget,0),rev_actual:md.reduce((s,m)=>s+m.rev_actual,0),
-    exp_budget:md.reduce((s,m)=>s+m.exp_budget,0),exp_actual:md.reduce((s,m)=>s+m.exp_actual,0),
+    rev_budget:filtered.reduce((s,m)=>s+m.rev_budget,0),rev_actual:filtered.reduce((s,m)=>s+m.rev_actual,0),
+    exp_budget:filtered.reduce((s,m)=>s+m.exp_budget,0),exp_actual:filtered.reduce((s,m)=>s+m.exp_actual,0),
   };
   totals.profit_budget=totals.rev_budget-totals.exp_budget;
   totals.profit_actual=totals.rev_actual-totals.exp_actual;
@@ -316,20 +330,31 @@ function Dashboard(){
   const totalLoanBalance=totalLoanOut-totalLoanRepay;
 
   const kpis={
-    gpm:(totals.profit_actual/totals.rev_actual*100).toFixed(1),
-    exp_ratio:(totals.exp_actual/totals.rev_actual*100).toFixed(1),
-    rev_growth:8.4,
-    bud_acc:(100-Math.abs(totals.rev_actual-totals.rev_budget)/totals.rev_budget*100).toFixed(1),
+    gpm:totals.rev_actual>0?(totals.profit_actual/totals.rev_actual*100).toFixed(1):'0.0',
+    exp_ratio:totals.rev_actual>0?(totals.exp_actual/totals.rev_actual*100).toFixed(1):'0.0',
+    bud_acc:totals.rev_budget>0?(100-Math.abs(totals.rev_actual-totals.rev_budget)/totals.rev_budget*100).toFixed(1):'0.0',
   };
+
+  const years=Array.from({length:5},(_,i)=>(curYear-2+i).toString());
 
   return(
     <div style={{padding:24,maxWidth:1600,margin:'0 auto'}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:24}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:24,flexWrap:'wrap',gap:12}}>
         <div>
           <h1 style={{fontSize:22,fontWeight:800,color:'#2e1065',margin:0}}>📊 Executive Dashboard</h1>
-          <p style={{color:'#64748b',fontSize:13,marginTop:4}}>ภาพรวมงบประมาณและผลการดำเนินงาน ปี 2025</p>
+          <p style={{color:'#64748b',fontSize:13,marginTop:4}}>ภาพรวมงบประมาณและผลการดำเนินงาน</p>
         </div>
-        <div style={{fontSize:12,color:'#94a3b8'}}>อัพเดท: {new Date().toLocaleString('th-TH')}</div>
+        <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+          <select value={filterYear} onChange={e=>setFilterYear(e.target.value)} style={{fontSize:13,padding:'6px 10px',borderRadius:8,border:'1px solid #d1d5db'}}>
+            {years.map(y=><option key={y} value={y}>{y}</option>)}
+          </select>
+          <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} style={{fontSize:13,padding:'6px 10px',borderRadius:8,border:'1px solid #d1d5db'}}>
+            <option value="">ทุกเดือน</option>
+            {MONTHS_EN.map((m,i)=><option key={i+1} value={i+1}>{m}</option>)}
+          </select>
+          {(filterMonth||filterYear!==curYear.toString())&&<button onClick={()=>{setFilterMonth('');setFilterYear(curYear.toString());}} style={{fontSize:12,padding:'6px 10px',borderRadius:8,border:'1px solid #d1d5db',background:'#f3f4f6',cursor:'pointer'}}>🔄 รีเซ็ต</button>}
+          <div style={{fontSize:12,color:'#94a3b8'}}>อัพเดท: {new Date().toLocaleString('th-TH')}</div>
+        </div>
       </div>
 
       {/* KPI Row */}
@@ -347,19 +372,19 @@ function Dashboard(){
       <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
         <div className="card">
           <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>Revenue Trend — Budget vs Actual</h3>
-          <LineBarChart data={md} type="line" keys={['rev_budget','rev_actual']} colors={['#c4b5fd','#7c3aed']} labels={['Budget','Actual']}/>
+          <LineBarChart data={filtered} type="line" keys={['rev_budget','rev_actual']} colors={['#c4b5fd','#7c3aed']} labels={['Budget','Actual']}/>
         </div>
         <div className="card">
           <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>Expense Trend — Budget vs Actual</h3>
-          <LineBarChart data={md} type="line" keys={['exp_budget','exp_actual']} colors={['#fca5a5','#dc2626']} labels={['Budget','Actual']}/>
+          <LineBarChart data={filtered} type="line" keys={['exp_budget','exp_actual']} colors={['#fca5a5','#dc2626']} labels={['Budget','Actual']}/>
         </div>
         <div className="card">
           <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>Profit Trend</h3>
-          <LineBarChart data={md} type="line" keys={['profit_budget','profit_actual']} colors={['#a78bfa','#0891b2']} labels={['Budget','Actual']}/>
+          <LineBarChart data={filtered} type="line" keys={['profit_budget','profit_actual']} colors={['#a78bfa','#0891b2']} labels={['Budget','Actual']}/>
         </div>
         <div className="card">
           <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>Budget vs Actual Monthly</h3>
-          <LineBarChart data={md} type="bar" keys={['rev_budget','rev_actual']} colors={['#c4b5fd','#7c3aed']} labels={['Budget','Actual']}/>
+          <LineBarChart data={filtered} type="bar" keys={['rev_budget','rev_actual']} colors={['#c4b5fd','#7c3aed']} labels={['Budget','Actual']}/>
         </div>
       </div>
 
@@ -1201,9 +1226,13 @@ function DailyCashFlow(){
   const [editOpening,setEditOpening]=useState(false);
   const [openingInput,setOpeningInput]=useState('');
   const [form,setForm]=useState({date:today(),type:'inflow',category:'รายรับลูกค้า',amount:'',bank:BANKS[0],desc:'',ref:''});
-  const [viewTab,setViewTab]=useState('daily'); // daily | monthly | yearly
+  const [viewTab,setViewTab]=useState('daily'); // daily | monthly | yearly | budget
   const [filterMonth,setFilterMonth]=useState('');
-  const [filterYear,setFilterYear]=useState('2025');
+  const [filterYear,setFilterYear]=useState(new Date().getFullYear().toString());
+  // Budget cashflow state
+  const [cfBudgets,setCfBudgets]=useState(()=>ls.get('cf_budgets',[]));
+  const [budForm,setBudForm]=useState({date:today(),flow:'in',category:'รายรับลูกค้า',amount:'',desc:''});
+  const [budMsg,setBudMsg]=useState('');
   const [msg,setMsg]=useState('');
   const [expandDate,setExpandDate]=useState(null);
 
@@ -1227,6 +1256,29 @@ function DailyCashFlow(){
   }
 
   function del(id){const nr=dailyPlan.filter(r=>r.id!==id);setDailyPlan(nr);ls.set('daily_cashflow',nr);}
+
+  // Budget CF save/delete
+  function saveBudget(e){
+    e.preventDefault();
+    const nr=[...cfBudgets,{id:Date.now(),...budForm,amount:+budForm.amount}];
+    setCfBudgets(nr);ls.set('cf_budgets',nr);
+    setBudMsg('✅ บันทึก Budget Cashflow สำเร็จ');
+    setBudForm(f=>({...f,amount:'',desc:''}));
+    setTimeout(()=>setBudMsg(''),3000);
+  }
+  function delBudget(id){const nr=cfBudgets.filter(r=>r.id!==id);setCfBudgets(nr);ls.set('cf_budgets',nr);}
+
+  // Budget monthly summary
+  const cfBudgetFiltered=cfBudgets.filter(r=>r.date?.startsWith(filterYear));
+  const cfBudgetByMonth={};
+  cfBudgetFiltered.forEach(r=>{
+    const mk=r.date.slice(0,7);
+    if(!cfBudgetByMonth[mk])cfBudgetByMonth[mk]={month:mk,inflow:0,outflow:0,items:[]};
+    if(r.flow==='in')cfBudgetByMonth[mk].inflow+=r.amount;
+    else cfBudgetByMonth[mk].outflow+=r.amount;
+    cfBudgetByMonth[mk].items.push(r);
+  });
+  const cfBudgetMonths=Object.values(cfBudgetByMonth).sort((a,b)=>a.month.localeCompare(b.month));
 
   // ---- Aggregate: actual_records + daily_cashflow manual entries ----
   const actualRecs=ls.get('actual_records',[]);
@@ -1454,8 +1506,8 @@ function DailyCashFlow(){
       </div>
 
       {/* View Tabs */}
-      <div style={{display:'flex',gap:4,background:'#f5f3ff',padding:4,borderRadius:12,width:'fit-content',marginBottom:16}}>
-        {[['daily','📆 รายวัน'],['monthly','📅 รายเดือน'],['yearly','📊 รายปี']].map(([v,l])=>(
+      <div style={{display:'flex',gap:4,background:'#f5f3ff',padding:4,borderRadius:12,width:'fit-content',marginBottom:16,flexWrap:'wrap'}}>
+        {[['daily','📆 รายวัน'],['monthly','📅 รายเดือน'],['yearly','📊 รายปี'],['budget','🎯 Budget CF']].map(([v,l])=>(
           <button key={v} onClick={()=>setViewTab(v)} style={{padding:'8px 20px',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',border:'none',background:viewTab===v?'#fff':'transparent',color:viewTab===v?'#7c3aed':'#6b7280',boxShadow:viewTab===v?'0 1px 3px rgba(0,0,0,.1)':'none'}}>{l}</button>
         ))}
       </div>
@@ -1628,15 +1680,116 @@ function DailyCashFlow(){
           </div>
         </div>
       )}
+
+      {/* ===== BUDGET CASHFLOW VIEW ===== */}
+      {viewTab==='budget'&&(
+        <div>
+          {/* Budget CF Entry Form */}
+          <div className="card" style={{marginBottom:16}}>
+            <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:4}}>🎯 Budget Daily Cashflow — วางแผนกระแสเงินสด</h3>
+            <p style={{fontSize:12,color:'#64748b',marginBottom:12}}>ข้อมูลที่บันทึกจะถูกรวมใน <b>งบรายรับ</b> และ <b>งบรายจ่าย</b> และ <b>Budget vs Actual</b> อัตโนมัติ</p>
+            {budMsg&&<div style={{marginBottom:10,fontSize:13,fontWeight:600}}>{budMsg}</div>}
+            <div style={{display:'flex',gap:8,marginBottom:12}}>
+              {[{v:'in',label:'💰 กระแสเงินสดรับ',color:'#16a34a',bg:'#f0fdf4'},{v:'out',label:'💸 กระแสเงินสดจ่าย',color:'#dc2626',bg:'#fff1f2'}].map(t=>(
+                <button key={t.v} type="button" onClick={()=>setBudForm(f=>({...f,flow:t.v,category:t.v==='in'?REV_CATS[0]:EXP_CATS[0]}))}
+                  style={{padding:'10px 24px',borderRadius:8,border:`2px solid ${budForm.flow===t.v?t.color:'#e5e7eb'}`,background:budForm.flow===t.v?t.bg:'#fff',color:budForm.flow===t.v?t.color:'#374151',fontWeight:700,fontSize:14,cursor:'pointer'}}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+            <form onSubmit={saveBudget} style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:12,alignItems:'end'}}>
+              <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>วันที่</label><input type="date" value={budForm.date} onChange={e=>setBudForm(f=>({...f,date:e.target.value}))} required/></div>
+              <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>หมวด</label>
+                <select value={budForm.category} onChange={e=>setBudForm(f=>({...f,category:e.target.value}))}>
+                  {(budForm.flow==='in'?REV_CATS:EXP_CATS).map(c=><option key={c}>{c}</option>)}
+                </select>
+              </div>
+              <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>จำนวนเงิน (บาท)</label><input type="number" placeholder="0" value={budForm.amount} onChange={e=>setBudForm(f=>({...f,amount:e.target.value}))} required/></div>
+              <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>รายละเอียด</label><input placeholder="รายละเอียด" value={budForm.desc} onChange={e=>setBudForm(f=>({...f,desc:e.target.value}))}/></div>
+              <button type="submit" className="btn btn-primary">➕ เพิ่ม Budget CF</button>
+            </form>
+          </div>
+
+          {/* Budget CF Monthly Summary */}
+          <div className="card" style={{marginBottom:16,overflowX:'auto'}}>
+            <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>สรุป Budget Cashflow รายเดือน ปี {filterYear}</h3>
+            {cfBudgetMonths.length===0?(
+              <p style={{textAlign:'center',color:'#94a3b8',padding:32}}>ยังไม่มีข้อมูล Budget Cashflow — กรอกข้อมูลด้านบน</p>
+            ):(
+              <table>
+                <thead>
+                  <tr>
+                    <th>เดือน</th>
+                    <th style={{textAlign:'right',background:'#dcfce7',color:'#166534'}}>Budget รับ 💰</th>
+                    <th style={{textAlign:'right',background:'#fee2e2',color:'#991b1b'}}>Budget จ่าย 💸</th>
+                    <th style={{textAlign:'right',background:'#f3e8ff',color:'#6b21a8'}}>Budget สุทธิ ⚖️</th>
+                    <th>จำนวนรายการ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cfBudgetMonths.map(m=>{
+                    const net=m.inflow-m.outflow;
+                    const mIdx=parseInt(m.month.slice(5),10)-1;
+                    return(
+                      <tr key={m.month}>
+                        <td style={{fontWeight:700}}>{MONTHS_TH[mIdx]} {m.month.slice(0,4)}</td>
+                        <td style={{textAlign:'right',color:'#16a34a',fontWeight:600}}>{m.inflow?`฿${fmt(m.inflow)}`:'-'}</td>
+                        <td style={{textAlign:'right',color:'#dc2626',fontWeight:600}}>{m.outflow?`฿${fmt(m.outflow)}`:'-'}</td>
+                        <td style={{textAlign:'right',fontWeight:700,color:net>=0?'#7c3aed':'#dc2626'}}>{net>=0?'+':''}{fmt(net)}</td>
+                        <td style={{fontSize:12,color:'#64748b'}}>{m.items.length} รายการ</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr style={{background:'#f5f3ff',fontWeight:700}}>
+                    <td>รวมปี {filterYear}</td>
+                    <td style={{textAlign:'right',color:'#16a34a'}}>฿{fmt(cfBudgetMonths.reduce((s,m)=>s+m.inflow,0))}</td>
+                    <td style={{textAlign:'right',color:'#dc2626'}}>฿{fmt(cfBudgetMonths.reduce((s,m)=>s+m.outflow,0))}</td>
+                    <td style={{textAlign:'right',color:'#7c3aed'}}>฿{fmt(cfBudgetMonths.reduce((s,m)=>s+m.inflow-m.outflow,0))}</td>
+                    <td>{cfBudgetFiltered.length} รายการ</td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+          </div>
+
+          {/* Budget CF Detail List */}
+          {cfBudgetFiltered.length>0&&(
+            <div className="card" style={{overflowX:'auto'}}>
+              <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>รายการ Budget Cashflow ทั้งหมด</h3>
+              <table>
+                <thead>
+                  <tr><th>วันที่</th><th>ประเภท</th><th>หมวด</th><th style={{textAlign:'right'}}>จำนวนเงิน</th><th>รายละเอียด</th><th></th></tr>
+                </thead>
+                <tbody>
+                  {[...cfBudgetFiltered].sort((a,b)=>a.date.localeCompare(b.date)).map(r=>(
+                    <tr key={r.id}>
+                      <td>{r.date}</td>
+                      <td><span style={{padding:'2px 8px',borderRadius:4,fontSize:12,background:r.flow==='in'?'#dcfce7':'#fee2e2',color:r.flow==='in'?'#166534':'#991b1b',fontWeight:600}}>{r.flow==='in'?'💰 รับ':'💸 จ่าย'}</span></td>
+                      <td>{r.category}</td>
+                      <td style={{textAlign:'right',fontWeight:600,color:r.flow==='in'?'#16a34a':'#dc2626'}}>฿{fmt(r.amount)}</td>
+                      <td style={{fontSize:12,color:'#64748b'}}>{r.desc||'-'}</td>
+                      <td><button onClick={()=>delBudget(r.id)} style={{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:13}}>🗑</button></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 /* ====== COMPARISON ====== */
 function Comparison(){
+  const curYear=new Date().getFullYear();
   const [monthFilter,setMonthFilter]=useState('');
   const [typeFilter,setTypeFilter]=useState('');
-  const monthlyData=buildMonthlyData();
+  const [yearFilter,setYearFilter]=useState(curYear.toString());
+  const monthlyData=buildMonthlyData(yearFilter);
 
   const compData=monthlyData.flatMap(m=>[
     {month:m.month,label:MONTHS_EN[m.month-1],dept:'Sales',cat:'Product Sales',type:'revenue',
@@ -1660,8 +1813,14 @@ function Comparison(){
   return(
     <div style={{padding:24,maxWidth:1400,margin:'0 auto'}}>
       <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:24}}>
-        <div><h1 style={{fontSize:22,fontWeight:800,color:'#2e1065',margin:0}}>⚖️ Budget vs Actual</h1></div>
-        <div style={{display:'flex',gap:8}}>
+        <div>
+          <h1 style={{fontSize:22,fontWeight:800,color:'#2e1065',margin:0}}>⚖️ Budget vs Actual</h1>
+          <p style={{fontSize:12,color:'#64748b',marginTop:4}}>🔗 รวมข้อมูลจาก: งบรายรับ/รายจ่าย + Budget CF + บันทึกผลจริง + Daily CF Actual</p>
+        </div>
+        <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+          <select value={yearFilter} onChange={e=>setYearFilter(e.target.value)} style={{width:90}}>
+            {Array.from({length:5},(_,i)=>(curYear-2+i).toString()).map(y=><option key={y}>{y}</option>)}
+          </select>
           <select value={typeFilter} onChange={e=>setTypeFilter(e.target.value)} style={{width:140}}>
             <option value="">ทุกประเภท</option><option value="revenue">รายรับ</option><option value="expense">รายจ่าย</option>
           </select>
