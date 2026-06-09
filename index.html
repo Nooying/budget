@@ -102,7 +102,6 @@ const ls={
     try{
       const v=localStorage.getItem(k);
       if(v)return JSON.parse(v);
-      // fallback: ถ้า localStorage ไม่ทำงาน (เช่น file://) ใช้ข้อมูลที่ฝังไว้
       if(window.__BUDGET_DATA__&&window.__BUDGET_DATA__[k])return JSON.parse(window.__BUDGET_DATA__[k]);
       return def;
     }catch{return def;}
@@ -110,6 +109,8 @@ const ls={
   set:(k,v)=>{
     try{localStorage.setItem(k,JSON.stringify(v));}catch{}
     if(window.__BUDGET_DATA__)window.__BUDGET_DATA__[k]=JSON.stringify(v);
+    // sync to PostgreSQL
+    try{fetch('/api/data',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({key:k,value:JSON.stringify(v)})}).catch(()=>{});}catch{}
   },
 };
 
@@ -1918,6 +1919,29 @@ function exportAllData(){
 /* ====== APP ====== */
 function App(){
   const [user,setUser]=useState(()=>{try{return JSON.parse(localStorage.getItem('budget_user'));}catch{return null;}});
+  const [dbLoaded,setDbLoaded]=useState(false);
+
+  // โหลดข้อมูลจาก PostgreSQL ก่อน render
+  React.useEffect(()=>{
+    fetch('/api/all')
+      .then(r=>r.json())
+      .then(data=>{
+        Object.entries(data).forEach(([k,v])=>{
+          try{localStorage.setItem(k,v);}catch{}
+          if(window.__BUDGET_DATA__)window.__BUDGET_DATA__[k]=v;
+        });
+        setDbLoaded(true);
+      })
+      .catch(()=>setDbLoaded(true)); // ถ้า API ไม่มี ก็ใช้ localStorage เดิม
+  },[]);
+
+  if(!dbLoaded)return(
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100vh',background:'linear-gradient(135deg,#2e1065,#4c1d95)'}}>
+      <div style={{fontSize:48,marginBottom:16}}>⏳</div>
+      <div style={{color:'#e9d5ff',fontSize:18,fontWeight:700}}>กำลังโหลดข้อมูล...</div>
+      <div style={{color:'#c4b5fd',fontSize:13,marginTop:8}}>กำลังเชื่อมต่อฐานข้อมูล</div>
+    </div>
+  );
   if(!user)return <LoginPage onLogin={u=>{localStorage.setItem('budget_user',JSON.stringify(u));setUser(u);}}/>;
   return <Layout user={user} onLogout={()=>{localStorage.removeItem('budget_user');setUser(null);}}/>;
 }
