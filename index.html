@@ -43,6 +43,60 @@
   ::-webkit-scrollbar-track{background:#f5f3ff}
   ::-webkit-scrollbar-thumb{background:#a78bfa;border-radius:4px}
   @media print{#sidebar{display:none!important}#main-content{margin:0!important}}
+
+  /* ===== MOBILE RESPONSIVE ===== */
+  #mobile-header{display:none}
+  #mobile-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:150}
+
+  @media(max-width:768px){
+    /* Mobile header bar */
+    #mobile-header{display:flex!important;align-items:center;gap:10px;padding:10px 16px;background:linear-gradient(90deg,#2e1065,#6d28d9);color:#fff;position:sticky;top:0;z-index:100;box-shadow:0 2px 8px rgba(0,0,0,.2)}
+    /* Sidebar as slide-in drawer */
+    #sidebar{position:fixed!important;left:0;top:0;height:100vh;z-index:200;transform:translateX(-100%);transition:transform .3s!important;width:240px!important;min-width:240px!important}
+    #sidebar.mob-open{transform:translateX(0)!important}
+    #mobile-overlay{display:block!important}
+    /* Main content full width */
+    #main-content{margin-left:0!important}
+    /* Page padding reduced */
+    .card{padding:12px!important}
+    /* Tables: always scrollable */
+    .card{overflow-x:auto!important}
+    table{min-width:500px}
+    thead th{font-size:11px!important;padding:7px 8px!important;white-space:nowrap}
+    tbody td{font-size:12px!important;padding:7px 8px!important}
+    tfoot td{font-size:12px!important;padding:7px 8px!important}
+    /* KPI cards: 2 columns on mobile */
+    .kpi-grid{grid-template-columns:1fr 1fr!important}
+    /* Responsive grid helpers */
+    .resp-2col{grid-template-columns:1fr!important}
+    .resp-4col{grid-template-columns:1fr 1fr!important}
+    /* Page wrapper padding */
+    .page-wrap{padding:0 0 80px 0!important}
+    /* Buttons: smaller */
+    .btn{padding:7px 12px!important;font-size:13px!important}
+    /* Forms: full width */
+    input,select{font-size:14px!important}
+    /* Headings */
+    h1{font-size:18px!important}
+    h2{font-size:16px!important}
+  }
+  @media(max-width:480px){
+    thead th{font-size:10px!important;padding:6px!important}
+    tbody td{font-size:11px!important;padding:6px!important}
+    .kpi-grid{grid-template-columns:1fr!important}
+    .resp-2col{grid-template-columns:1fr!important}
+    .badge{font-size:10px!important}
+  }
+  /* Form row helper: wraps on mobile */
+  .form-row{display:flex;gap:12px;flex-wrap:wrap}
+  .form-row>*{flex:1;min-width:140px}
+  /* Page padding helper */
+  @media(max-width:768px){
+    .form-row>*{min-width:100%}
+    /* Reduce page padding on mobile */
+    div[style*="padding:24"]{padding:12px!important}
+    div[style*="padding: 24"]{padding:12px!important}
+  }
 </style>
 </head>
 <body class="bg-gray-50">
@@ -390,7 +444,7 @@ function Dashboard(){
       {/* KPI Indicators */}
       <div style={{marginBottom:24}}>
         <SectionTitle>🎯 KPI Indicators</SectionTitle>
-        <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
+        <div className="kpi-grid" style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
           {[
             {label:'Gross Profit Margin',value:fmtP(kpis.gpm),good:parseFloat(kpis.gpm)>20,icon:'📈'},
             {label:'Expense Ratio',value:fmtP(kpis.exp_ratio),good:parseFloat(kpis.exp_ratio)<80,icon:'💸'},
@@ -411,7 +465,7 @@ function Dashboard(){
       {loans.length>0&&(
         <div style={{marginBottom:24}}>
           <SectionTitle>🏦 สรุปภาระเงินกู้ (Loan Summary)</SectionTitle>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
+          <div className="kpi-grid" style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12}}>
             {[
               {label:'เบิกกู้รวม',value:`฿${fmtM(totalLoanOut)}`,color:'#0891b2',bg:'#f0f9ff'},
               {label:'ชำระคืนรวม',value:`฿${fmtM(totalLoanRepay)}`,color:'#16a34a',bg:'#f0fdf4'},
@@ -582,7 +636,7 @@ function RevenueBudget(){
         <span style={{color:'#7c3aed',marginLeft:8}}>| ประเภทรายรับ: {REV_CATS.join(' / ')}</span>
       </div>
 
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:16}}>
+      <div className="kpi-grid" style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:16}}>
         <KpiCard label="งบรวมทั้งหมด" value={`฿${fmtM(total)}`} icon="💰" borderColor="#7c3aed"/>
         <KpiCard label="จำนวนรายการ" value={filtered.length} icon="📋" borderColor="#16a34a"/>
         <KpiCard label="เฉลี่ย/เดือน" value={`฿${fmtM(total/12)}`} icon="📅" borderColor="#f59e0b"/>
@@ -742,7 +796,7 @@ function ExpenseBudget(){
         <span style={{color:'#b45309',marginLeft:8}}>| ประเภทรายจ่าย: {EXP_CATS.join(' / ')}</span>
       </div>
 
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:16}}>
+      <div className="kpi-grid" style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:16}}>
         <KpiCard label="งบรวมทั้งหมด" value={`฿${fmtM(total)}`} icon="📋" borderColor="#f59e0b"/>
         <KpiCard label="จำนวนรายการ" value={filtered.length} icon="📝" borderColor="#7c3aed"/>
         <KpiCard label="เงินเดือนพนักงาน" value={`฿${fmtM(budgets.filter(b=>b.cat==='เงินเดือนพนักงาน').reduce((s,b)=>s+b.amount,0))}`} icon="👥" borderColor="#0891b2"/>
@@ -969,7 +1023,7 @@ function LoanPage(){
       </div>
 
       {/* Summary KPIs */}
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:20}}>
+      <div className="kpi-grid" style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:20}}>
         <KpiCard label="เบิกกู้รวม" value={`฿${fmtM(totalDraw)}`} icon="💳" borderColor="#0891b2" bg="#f0f9ff"/>
         <KpiCard label="ชำระคืนรวม" value={`฿${fmtM(totalRepay)}`} icon="💚" borderColor="#16a34a" bg="#f0fdf4"/>
         <KpiCard label="ยอดคงค้าง" value={`฿${fmtM(totalBalance)}`} icon="🏦" borderColor="#7c3aed" bg="#faf5ff"/>
@@ -1004,7 +1058,7 @@ function LoanPage(){
 
       {/* Type Summary */}
       {loanTypes.length>0&&(
-        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
+        <div className="resp-2col" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
           {/* สรุปตามประเภทวงเงิน */}
           <div className="card" style={{overflowX:'auto'}}>
             <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>📋 สรุปตามประเภทวงเงิน (P/N vs Loan)</h3>
@@ -1272,7 +1326,7 @@ function ActualEntry(){
         {msg&&<div style={{marginTop:6,fontWeight:600,color:'#16a34a'}}>{msg}</div>}
       </div>
 
-      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:12}}>
+      <div className="kpi-grid" style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:12}}>
         <KpiCard label="รายการทั้งหมด" value={records.filter(r=>r.type===tab).length} icon="📄" borderColor="#7c3aed"/>
         <KpiCard label="รายการที่กรอง" value={filtered.length} icon="🔍" borderColor="#0891b2"/>
         <KpiCard label="ยอดรวม" value={`฿${fmt(total)}`} icon={tab==='revenue'?'💰':'💸'} borderColor={tab==='revenue'?'#16a34a':'#dc2626'}/>
@@ -2385,7 +2439,7 @@ function Reports(){
       {/* ===== LOAN SUMMARY ===== */}
       {reportTab==='loan'&&(
         <div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:16}}>
+          <div className="kpi-grid" style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:16}}>
             {[
               {label:'วงเงินกู้ทั้งหมด',value:'฿'+fmtM(totalLoanDraw),color:'#7c3aed',bg:'#faf5ff'},
               {label:'ชำระคืนแล้ว',value:'฿'+fmtM(totalLoanRepay),color:'#16a34a',bg:'#f0fdf4'},
@@ -2744,43 +2798,66 @@ const MENU=[
 function Layout({user,onLogout}){
   const [page,setPage]=useState('dashboard');
   const [collapsed,setCollapsed]=useState(false);
+  const [mobOpen,setMobOpen]=useState(false);
   const PAGES={dashboard:Dashboard,revenue:RevenueBudget,expense:ExpenseBudget,actual:ActualEntry,loan:LoanPage,cashflow:DailyCashFlow,bankbal:BankBalance,comparison:Comparison,reports:Reports,users:Users};
   const Current=PAGES[page]||Dashboard;
   const allowed=MENU.filter(m=>!m.admin||user.role==='admin');
+  const curMenu=MENU.find(m=>m.id===page)||MENU[0];
+
+  function navTo(id){setPage(id);setMobOpen(false);}
 
   return(
-    <div style={{display:'flex',height:'100vh',overflow:'hidden'}}>
-      <aside id="sidebar" style={{width:collapsed?60:220,background:'linear-gradient(180deg,#2e1065,#4c1d95,#6d28d9)',color:'#fff',display:'flex',flexDirection:'column',flexShrink:0,transition:'width .3s',overflow:'hidden'}}>
-        <div style={{padding:'14px 12px',display:'flex',alignItems:'center',gap:10,borderBottom:'1px solid rgba(255,255,255,.1)',minWidth:220}}>
-          {!collapsed&&<div style={{flex:1}}><div style={{fontWeight:800,fontSize:13}}>Budget Planning</div><div style={{color:'#c4b5fd',fontSize:11}}>& Actual Tracking</div></div>}
-          <button onClick={()=>setCollapsed(c=>!c)} style={{background:'none',border:'none',color:'#c4b5fd',cursor:'pointer',fontSize:16,flexShrink:0,padding:'2px 4px'}}>{collapsed?'▶':'◀'}</button>
+    <div style={{display:'flex',height:'100vh',overflow:'hidden',flexDirection:'column'}}>
+      {/* Mobile Header Bar */}
+      <div id="mobile-header">
+        <button onClick={()=>setMobOpen(true)} style={{background:'none',border:'none',color:'#fff',fontSize:22,cursor:'pointer',lineHeight:1,padding:'2px 4px'}}>☰</button>
+        <div style={{flex:1}}>
+          <div style={{fontWeight:800,fontSize:14}}>{curMenu.icon} {curMenu.label}</div>
+          <div style={{fontSize:10,color:'#c4b5fd'}}>Budget Planning & Actual Tracking</div>
         </div>
-        <nav style={{flex:1,paddingTop:8,overflowY:'auto'}}>
-          {allowed.map(m=>(
-            <div key={m.id} className={`sidebar-link${page===m.id?' active':''}`} onClick={()=>setPage(m.id)}>
-              <span style={{fontSize:18,flexShrink:0}}>{m.icon}</span>
-              {!collapsed&&<span>{m.label}</span>}
-            </div>
-          ))}
-        </nav>
-        <div style={{padding:'12px 16px',borderTop:'1px solid rgba(255,255,255,.1)',minWidth:220}}>
-          {!collapsed&&<div style={{marginBottom:10}}>
-            <div style={{fontWeight:700,fontSize:13}}>{user.name}</div>
-            <span className={`badge ${ROLE_COLOR[user.role]}`} style={{fontSize:11,marginTop:4,display:'inline-flex'}}>{ROLE_LABEL[user.role]}</span>
-          </div>}
-          {!collapsed&&<button onClick={exportAllData} style={{display:'flex',alignItems:'center',gap:8,background:'rgba(139,92,246,.25)',border:'1px solid rgba(139,92,246,.5)',color:'#e9d5ff',cursor:'pointer',fontSize:12,borderRadius:8,padding:'6px 10px',marginBottom:8,width:'100%'}}
-            onMouseOver={e=>e.currentTarget.style.background='rgba(139,92,246,.45)'} onMouseOut={e=>e.currentTarget.style.background='rgba(139,92,246,.25)'}>
-            <span>📦</span><span>ส่งออกข้อมูลทั้งหมด</span>
-          </button>}
-          <button onClick={onLogout} style={{display:'flex',alignItems:'center',gap:8,background:'none',border:'none',color:'#c4b5fd',cursor:'pointer',fontSize:13}}
-            onMouseOver={e=>e.currentTarget.style.color='#fff'} onMouseOut={e=>e.currentTarget.style.color='#c4b5fd'}>
-            <span>🚪</span>{!collapsed&&'ออกจากระบบ'}
-          </button>
-        </div>
-      </aside>
-      <main id="main-content" style={{flex:1,overflowY:'auto',background:'#f8f5ff'}}>
-        <Current/>
-      </main>
+        <span style={{fontSize:12,color:'#c4b5fd'}}>{user.name}</span>
+        <button onClick={onLogout} style={{background:'none',border:'none',color:'#c4b5fd',fontSize:18,cursor:'pointer'}}>🚪</button>
+      </div>
+
+      <div style={{display:'flex',flex:1,overflow:'hidden',position:'relative'}}>
+        {/* Overlay for mobile drawer */}
+        {mobOpen&&<div id="mobile-overlay" onClick={()=>setMobOpen(false)} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',zIndex:150}}/>}
+
+        {/* Sidebar */}
+        <aside id="sidebar" className={mobOpen?'mob-open':''} style={{width:collapsed?60:220,background:'linear-gradient(180deg,#2e1065,#4c1d95,#6d28d9)',color:'#fff',display:'flex',flexDirection:'column',flexShrink:0,transition:'width .3s',overflow:'hidden'}}>
+          <div style={{padding:'14px 12px',display:'flex',alignItems:'center',gap:10,borderBottom:'1px solid rgba(255,255,255,.1)',minWidth:220}}>
+            {!collapsed&&<div style={{flex:1}}><div style={{fontWeight:800,fontSize:13}}>Budget Planning</div><div style={{color:'#c4b5fd',fontSize:11}}>& Actual Tracking</div></div>}
+            <button onClick={()=>setCollapsed(c=>!c)} style={{background:'none',border:'none',color:'#c4b5fd',cursor:'pointer',fontSize:16,flexShrink:0,padding:'2px 4px'}}>{collapsed?'▶':'◀'}</button>
+          </div>
+          <nav style={{flex:1,paddingTop:8,overflowY:'auto'}}>
+            {allowed.map(m=>(
+              <div key={m.id} className={`sidebar-link${page===m.id?' active':''}`} onClick={()=>navTo(m.id)}>
+                <span style={{fontSize:18,flexShrink:0}}>{m.icon}</span>
+                {!collapsed&&<span>{m.label}</span>}
+              </div>
+            ))}
+          </nav>
+          <div style={{padding:'12px 16px',borderTop:'1px solid rgba(255,255,255,.1)',minWidth:220}}>
+            {!collapsed&&<div style={{marginBottom:10}}>
+              <div style={{fontWeight:700,fontSize:13}}>{user.name}</div>
+              <span className={'badge '+ROLE_COLOR[user.role]} style={{fontSize:11,marginTop:4,display:'inline-flex'}}>{ROLE_LABEL[user.role]}</span>
+            </div>}
+            {!collapsed&&<button onClick={exportAllData} style={{display:'flex',alignItems:'center',gap:8,background:'rgba(139,92,246,.25)',border:'1px solid rgba(139,92,246,.5)',color:'#e9d5ff',cursor:'pointer',fontSize:12,borderRadius:8,padding:'6px 10px',marginBottom:8,width:'100%'}}
+              onMouseOver={e=>e.currentTarget.style.background='rgba(139,92,246,.45)'} onMouseOut={e=>e.currentTarget.style.background='rgba(139,92,246,.25)'}>
+              <span>📦</span><span>ส่งออกข้อมูลทั้งหมด</span>
+            </button>}
+            <button onClick={onLogout} style={{display:'flex',alignItems:'center',gap:8,background:'none',border:'none',color:'#c4b5fd',cursor:'pointer',fontSize:13}}
+              onMouseOver={e=>e.currentTarget.style.color='#fff'} onMouseOut={e=>e.currentTarget.style.color='#c4b5fd'}>
+              <span>🚪</span>{!collapsed&&'ออกจากระบบ'}
+            </button>
+          </div>
+        </aside>
+
+        {/* Main Content */}
+        <main id="main-content" style={{flex:1,overflowY:'auto',background:'#f8f5ff'}}>
+          <Current/>
+        </main>
+      </div>
     </div>
   );
 }
