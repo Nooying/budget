@@ -84,6 +84,20 @@ def index():
         'X-Content-Type-Options': 'nosniff',
     })
 
+# ---- Serve Excel template ----
+@app.route('/import_templates.xlsx')
+def download_template():
+    import mimetypes
+    path = os.path.join(BASE_DIR, 'public', 'import_templates.xlsx')
+    if not os.path.exists(path):
+        return Response('File not found', status=404)
+    with open(path, 'rb') as f:
+        data = f.read()
+    return Response(data, status=200, headers={
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': 'attachment; filename="import_templates.xlsx"',
+    })
+
 # ---- API: get all data ----
 @app.route('/api/all', methods=['GET'])
 def get_all():

@@ -3113,6 +3113,10 @@ function Layout({user,onLogout}){
               onMouseOver={e=>e.currentTarget.style.background='rgba(139,92,246,.45)'} onMouseOut={e=>e.currentTarget.style.background='rgba(139,92,246,.25)'}>
               <span>📦</span><span>ส่งออกข้อมูลทั้งหมด</span>
             </button>}
+            {!collapsed&&<a href="/import_templates.xlsx" download style={{display:'flex',alignItems:'center',gap:8,background:'rgba(245,158,11,.2)',border:'1px solid rgba(245,158,11,.4)',color:'#fde68a',cursor:'pointer',fontSize:12,borderRadius:8,padding:'6px 10px',marginBottom:8,width:'100%',textDecoration:'none',boxSizing:'border-box'}}
+              onMouseOver={e=>e.currentTarget.style.background='rgba(245,158,11,.4)'} onMouseOut={e=>e.currentTarget.style.background='rgba(245,158,11,.2)'}>
+              <span>📥</span><span>ดาวน์โหลด Template Import</span>
+            </a>}
             <button onClick={onLogout} style={{display:'flex',alignItems:'center',gap:8,background:'none',border:'none',color:'#c4b5fd',cursor:'pointer',fontSize:13}}
               onMouseOver={e=>e.currentTarget.style.color='#fff'} onMouseOut={e=>e.currentTarget.style.color='#c4b5fd'}>
               <span>🚪</span>{!collapsed&&'ออกจากระบบ'}
