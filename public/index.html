@@ -1482,17 +1482,7 @@ function DailyCashFlow(){
   const [filterYear,setFilterYear]=useState(new Date().getFullYear().toString());
   // Budget cashflow state
   const [cfBudgets,setCfBudgets]=useState(()=>ls.get('cf_budgets',[]));
-  const _td=today(); // 'YYYY-MM-DD'
-  const [budForm,setBudForm]=useState({date:_td,year:+_td.slice(0,4),month:+_td.slice(5,7),day:+_td.slice(8,10),flow:'in',category:'รายรับลูกค้า',amount:'',bank:BANKS[0],desc:''});
-  // helper: sync date string whenever year/month/day changes
-  function setBudDate(patch){
-    setBudForm(f=>{
-      const nf={...f,...patch};
-      const maxDay=new Date(nf.year,nf.month,0).getDate();
-      const d=Math.min(nf.day,maxDay);
-      return {...nf,day:d,date:`${nf.year}-${String(nf.month).padStart(2,'0')}-${String(d).padStart(2,'0')}`};
-    });
-  }
+  const [budForm,setBudForm]=useState({date:today(),flow:'in',category:'รายรับลูกค้า',amount:'',bank:BANKS[0],desc:''});
   const [budMsg,setBudMsg]=useState('');
   // Budget CF: opening balance per month (key: 'YYYY-MM' → amount)
   const [cfMonthOpen,setCfMonthOpen]=useState(()=>ls.get('cf_month_open',{}));
@@ -1500,6 +1490,8 @@ function DailyCashFlow(){
   const [openInput,setOpenInput]=useState('');
   const [budExpandDate,setBudExpandDate]=useState(null);
   const [budViewTab,setBudViewTab]=useState('daily'); // daily | monthly
+  const [budFilterYear,setBudFilterYear]=useState(new Date().getFullYear().toString());
+  const [budFilterMonth,setBudFilterMonth]=useState(''); // '' = ทุกเดือน
   const [msg,setMsg]=useState('');
   const [expandDate,setExpandDate]=useState(null);
 
@@ -1601,8 +1593,12 @@ function DailyCashFlow(){
     setBudMsg('✅ '+(mode==='replace'?'แทนที่':'เพิ่ม')+' '+parsed.length+' รายการ');
   }
 
-  // Budget monthly summary
-  const cfBudgetFiltered=cfBudgets.filter(r=>r.date?.startsWith(filterYear));
+  // Budget monthly summary — filter by budFilterYear + budFilterMonth
+  const cfBudgetFiltered=cfBudgets.filter(r=>{
+    if(!r.date?.startsWith(budFilterYear))return false;
+    if(budFilterMonth&&r.date.slice(5,7)!==String(budFilterMonth).padStart(2,'0'))return false;
+    return true;
+  });
 
   // Build daily rows for Budget CF with running balance per month
   function saveCfMonthOpen(mk,val){
@@ -2070,23 +2066,9 @@ function DailyCashFlow(){
                 </button>
               ))}
             </div>
-            <form onSubmit={saveBudget} style={{display:'grid',gridTemplateColumns:'repeat(9,1fr)',gap:10,alignItems:'end'}}>
-              <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>ปี</label>
-                <select value={budForm.year} onChange={e=>setBudDate({year:+e.target.value})}>
-                  {Array.from({length:5},(_,i)=>new Date().getFullYear()-1+i).map(y=><option key={y} value={y}>{y}</option>)}
-                </select>
-              </div>
-              <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>เดือน</label>
-                <select value={budForm.month} onChange={e=>setBudDate({month:+e.target.value})}>
-                  {MONTHS_TH.map((m,i)=><option key={i+1} value={i+1}>{m}</option>)}
-                </select>
-              </div>
-              <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>วันที่</label>
-                <select value={budForm.day} onChange={e=>setBudDate({day:+e.target.value})}>
-                  {Array.from({length:new Date(budForm.year,budForm.month,0).getDate()},(_,i)=>i+1).map(d=><option key={d} value={d}>{d}</option>)}
-                </select>
-              </div>
-              <div style={{gridColumn:'span 2'}}><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>หมวด</label>
+            <form onSubmit={saveBudget} style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:12,alignItems:'end'}}>
+              <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>วันที่</label><input type="date" value={budForm.date} onChange={e=>setBudForm(f=>({...f,date:e.target.value}))} required/></div>
+              <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>หมวด</label>
                 <select value={budForm.category} onChange={e=>setBudForm(f=>({...f,category:e.target.value}))}>
                   {(budForm.flow==='in'?REV_CATS:EXP_CATS).map(c=><option key={c}>{c}</option>)}
                 </select>
@@ -2098,15 +2080,30 @@ function DailyCashFlow(){
               </div>
               <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>จำนวนเงิน (บาท)</label><input type="number" placeholder="0" value={budForm.amount} onChange={e=>setBudForm(f=>({...f,amount:e.target.value}))} required/></div>
               <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>รายละเอียด</label><input placeholder="รายละเอียด" value={budForm.desc} onChange={e=>setBudForm(f=>({...f,desc:e.target.value}))}/></div>
-              <button type="submit" className="btn btn-primary" style={{whiteSpace:'nowrap'}}>➕ เพิ่มรายการ</button>
+              <button type="submit" className="btn btn-primary">➕ เพิ่มรายการ</button>
             </form></>}
           </div>
 
           {/* Sub-tab: Daily / Monthly */}
-          <div style={{display:'flex',gap:4,background:'#f5f3ff',padding:4,borderRadius:12,width:'fit-content',marginBottom:16}}>
-            {[['daily','📆 รายวัน'],['monthly','📅 สรุปรายเดือน']].map(([v,l])=>(
-              <button key={v} onClick={()=>setBudViewTab(v)} style={{padding:'7px 18px',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',border:'none',background:budViewTab===v?'#fff':'transparent',color:budViewTab===v?'#7c3aed':'#6b7280',boxShadow:budViewTab===v?'0 1px 3px rgba(0,0,0,.1)':'none'}}>{l}</button>
-            ))}
+          {/* Filter Bar */}
+          <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:14,flexWrap:'wrap'}}>
+            <div style={{display:'flex',gap:4,background:'#f5f3ff',padding:4,borderRadius:12}}>
+              {[['daily','📆 รายวัน'],['monthly','📅 สรุปรายเดือน']].map(([v,l])=>(
+                <button key={v} onClick={()=>setBudViewTab(v)} style={{padding:'7px 18px',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',border:'none',background:budViewTab===v?'#fff':'transparent',color:budViewTab===v?'#7c3aed':'#6b7280',boxShadow:budViewTab===v?'0 1px 3px rgba(0,0,0,.1)':'none'}}>{l}</button>
+              ))}
+            </div>
+            <div style={{display:'flex',gap:8,alignItems:'center',background:'#fff',border:'1px solid #e5e7eb',borderRadius:10,padding:'6px 12px'}}>
+              <span style={{fontSize:12,color:'#64748b',fontWeight:600}}>📅 ดูข้อมูลปี-เดือน:</span>
+              <select value={budFilterYear} onChange={e=>{setBudFilterYear(e.target.value);setBudFilterMonth('');}} style={{fontSize:13,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db',width:90}}>
+                {Array.from({length:5},(_,i)=>(new Date().getFullYear()-2+i).toString()).map(y=><option key={y}>{y}</option>)}
+              </select>
+              <select value={budFilterMonth} onChange={e=>setBudFilterMonth(e.target.value)} style={{fontSize:13,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db',width:120}}>
+                <option value="">ทุกเดือน</option>
+                {MONTHS_TH.map((m,i)=><option key={i+1} value={String(i+1).padStart(2,'0')}>{m}</option>)}
+              </select>
+              {budFilterMonth&&<button onClick={()=>setBudFilterMonth('')} style={{fontSize:11,padding:'2px 8px',borderRadius:6,background:'#f1f5f9',border:'1px solid #cbd5e1',cursor:'pointer',color:'#64748b'}}>✕ ล้าง</button>}
+              <span style={{fontSize:12,color:'#94a3b8'}}>{cfBudgetFiltered.length} รายการ</span>
+            </div>
           </div>
 
           {cfBudgetMonths.length===0&&(
@@ -2218,7 +2215,23 @@ function DailyCashFlow(){
           {/* ===== MONTHLY SUMMARY VIEW ===== */}
           {budViewTab==='monthly'&&cfBudgetMonths.length>0&&(
             <div className="card" style={{overflowX:'auto'}}>
-              <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>สรุป Budget Cashflow รายเดือน ปี {filterYear}</h3>
+              <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>
+                สรุป Budget Cashflow {budFilterMonth?MONTHS_TH[+budFilterMonth-1]+' ':' '}ปี {budFilterYear}
+              </h3>
+              {/* KPI summary */}
+              <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:16}}>
+                {[
+                  {label:'รายรับรวม (ประมาณการ)',val:cfBudgetMonths.reduce((s,m)=>s+m.inflow,0),color:'#16a34a',bg:'#f0fdf4',icon:'💰'},
+                  {label:'รายจ่ายรวม (ประมาณการ)',val:cfBudgetMonths.reduce((s,m)=>s+m.outflow,0),color:'#dc2626',bg:'#fff1f2',icon:'💸'},
+                  {label:'สุทธิ (รับ-จ่าย)',val:cfBudgetMonths.reduce((s,m)=>s+m.net,0),color:'#7c3aed',bg:'#faf5ff',icon:'⚖️'},
+                  {label:'คงเหลือสิ้นงวด',val:cfBudgetMonths[cfBudgetMonths.length-1]?.closeBal||0,color:'#0891b2',bg:'#f0f9ff',icon:'🏦'},
+                ].map(k=>(
+                  <div key={k.label} style={{background:k.bg,borderRadius:10,padding:'10px 14px',border:`1px solid ${k.color}33`}}>
+                    <div style={{fontSize:11,color:k.color,fontWeight:600,marginBottom:4}}>{k.icon} {k.label}</div>
+                    <div style={{fontSize:16,fontWeight:800,color:k.color}}>฿{fmt(k.val)}</div>
+                  </div>
+                ))}
+              </div>
               <table>
                 <thead>
                   <tr>
@@ -2249,7 +2262,7 @@ function DailyCashFlow(){
                 </tbody>
                 <tfoot>
                   <tr style={{background:'#f5f3ff',fontWeight:700}}>
-                    <td>รวมปี {filterYear}</td>
+                    <td>รวม{budFilterMonth?MONTHS_TH[+budFilterMonth-1]:'ปี '+budFilterYear}</td>
                     <td style={{textAlign:'right',color:'#3730a3'}}>-</td>
                     <td style={{textAlign:'right',color:'#16a34a'}}>฿{fmt(cfBudgetMonths.reduce((s,m)=>s+m.inflow,0))}</td>
                     <td style={{textAlign:'right',color:'#dc2626'}}>฿{fmt(cfBudgetMonths.reduce((s,m)=>s+m.outflow,0))}</td>
