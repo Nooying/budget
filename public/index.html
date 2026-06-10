@@ -605,16 +605,21 @@ function ImportBar({onImport,onExport,onClearAll,count,label,sampleType,disabled
 }
 
 /* ====== FX AMOUNT INPUT — สกุลเงินต่างประเทศ → บาท ====== */
-// props: amountTHB, currency, fxRate, amountOrig, onChange(patch)
+// props: amountTHB, currency, fxRate, amountOrig, onChange(patch), autoRates, rateSource
+// autoRates = {USD:35.12, EUR:38.5, ...}  (THB per 1 unit, from BOT/fallback)
 // patch = {amountTHB, currency, fxRate, amountOrig}
-function FxAmount({amountTHB,currency='THB',fxRate=1,amountOrig='',onChange}){
+function FxAmount({amountTHB,currency='THB',fxRate=1,amountOrig='',onChange,autoRates={},rateSource=''}){
   const cur=CURRENCIES.find(c=>c.code===currency)||CURRENCIES[0];
   const isTHB=currency==='THB';
   const calcTHB=(orig,rate)=>+(parseFloat(orig||0)*parseFloat(rate||1)).toFixed(2);
 
   function onCurrencyChange(code){
     if(code==='THB'){onChange({currency:'THB',fxRate:1,amountOrig:'',amountTHB:''});}
-    else{onChange({currency:code,fxRate:fxRate||1,amountOrig:amountOrig,amountTHB:calcTHB(amountOrig,fxRate||1)});}
+    else{
+      // Auto-fill rate from BOT/API if available
+      const newRate=autoRates[code]?+(autoRates[code]).toFixed(4):(fxRate||1);
+      onChange({currency:code,fxRate:newRate,amountOrig:amountOrig,amountTHB:calcTHB(amountOrig,newRate)});
+    }
   }
   function onOrigChange(v){
     const thb=calcTHB(v,fxRate);
@@ -643,10 +648,15 @@ function FxAmount({amountTHB,currency='THB',fxRate=1,amountOrig='',onChange}){
       </div>}
       {/* If foreign currency: exchange rate */}
       {!isTHB&&<div>
-        <label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>อัตราแลก (1 {cur.code} = ? บาท)</label>
+        <label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>
+          อัตราแลก (1 {cur.code} = ? บาท)
+          {autoRates[currency]&&<span style={{marginLeft:6,fontSize:10,background:'#dcfce7',color:'#166534',padding:'1px 6px',borderRadius:4,fontWeight:700}}>
+            🏦 {rateSource||'BOT'}
+          </span>}
+        </label>
         <input type="number" min="0" step="any" placeholder="อัตราแลก"
           value={fxRate} onChange={e=>onRateChange(e.target.value)}
-          style={{fontSize:13,borderColor:'#a5b4fc',background:'#f5f3ff'}}/>
+          style={{fontSize:13,borderColor:autoRates[currency]?'#86efac':'#a5b4fc',background:autoRates[currency]?'#f0fdf4':'#f5f3ff'}}/>
       </div>}
       {/* THB amount — editable if THB, readonly if foreign */}
       <div>
@@ -666,6 +676,33 @@ function FxAmount({amountTHB,currency='THB',fxRate=1,amountOrig='',onChange}){
       </div>
     </div>
   );
+}
+
+/* ====== FX RATES HOOK — ดึงอัตราแลกเปลี่ยนจาก BOT / fallback ======
+   เรียก /api/fx_rates (backend) → cache ใน localStorage วันต่อวัน
+   Return: { rates:{USD:35.12,...}, source:'BOT'|'open.er-api.com', loading, date }
+*/
+function useFxRates(){
+  const [state,setState]=React.useState(()=>{
+    const today=new Date().toISOString().slice(0,10);
+    try{
+      const c=JSON.parse(localStorage.getItem('fx_rates_cache')||'null');
+      if(c&&c.date===today&&c.rates)return{rates:c.rates,source:c.source||'',loading:false,date:today};
+    }catch(e){}
+    return{rates:{},source:'',loading:true,date:today};
+  });
+  React.useEffect(()=>{
+    if(!state.loading)return;
+    const today=new Date().toISOString().slice(0,10);
+    fetch('/api/fx_rates').then(r=>r.json()).then(d=>{
+      if(d.rates){
+        const payload={rates:d.rates,source:d.source||'',loading:false,date:d.date||today};
+        setState(payload);
+        try{localStorage.setItem('fx_rates_cache',JSON.stringify({date:payload.date,rates:d.rates,source:d.source}));}catch(e){}
+      }else{setState(s=>({...s,loading:false}));}
+    }).catch(()=>setState(s=>({...s,loading:false})));
+  },[state.loading]);
+  return state;
 }
 
 /* ====== REVENUE BUDGET ====== */
@@ -1363,6 +1400,7 @@ function LoanPage(){
 function ActualEntry(){
   const curUser=React.useContext(UserCtx);
   const isAdm=isAdmin(curUser);
+  const {rates:fxRates,source:fxSource}=useFxRates();
   const [tab,setTab]=useState('revenue');
   // Admin/Finance เห็นทั้งหมด, คนอื่นเห็นแค่ของตัวเอง
   const [records,setRecords]=useState(()=>filterOwn(ls.get('actual_records',[]),curUser));
@@ -1487,6 +1525,7 @@ function ActualEntry(){
             <select value={form.cat} onChange={e=>setForm(f=>({...f,cat:e.target.value}))}>{tabCats.map(c=><option key={c}>{c}</option>)}</select></div>
           <FxAmount
             amountTHB={form.amount} currency={form.currency} fxRate={form.fxRate} amountOrig={form.amountOrig}
+            autoRates={fxRates} rateSource={fxSource==='BOT'?'BOT':fxSource?'Open ER':''}
             onChange={p=>setForm(f=>({...f,amount:p.amountTHB,currency:p.currency,fxRate:p.fxRate,amountOrig:p.amountOrig}))}
           />
           <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>{tab==='expense'?'Vendor/เจ้าหนี้':'ธนาคาร/แหล่ง'}</label><input placeholder={tab==='expense'?'ชื่อเจ้าหนี้':'ชื่อลูกหนี้/แหล่งเงิน'} value={form.vendor} onChange={e=>setForm(f=>({...f,vendor:e.target.value}))}/></div>
@@ -1552,6 +1591,7 @@ function ActualEntry(){
 function DailyCashFlow(){
   const curUser=React.useContext(UserCtx);
   const isAdm=isAdmin(curUser);
+  const {rates:fxRates,source:fxSource,loading:fxLoading}=useFxRates();
   const [dailyPlan,setDailyPlan]=useState(()=>ls.get('daily_cashflow',[]));
   // ยอดยกมาเริ่มต้น (ต้นปี/ต้นงวด) — ผู้ใช้กำหนดได้
   const [openingYear,setOpeningYear]=useState(()=>ls.get('cf_opening_year',0));
@@ -1563,7 +1603,7 @@ function DailyCashFlow(){
   const [filterYear,setFilterYear]=useState(new Date().getFullYear().toString());
   // Budget cashflow state
   const [cfBudgets,setCfBudgets]=useState(()=>ls.get('cf_budgets',[]));
-  const [budForm,setBudForm]=useState({date:today(),flow:'in',category:'รายรับลูกค้า',amount:'',bank:BANKS[0],desc:''});
+  const [budForm,setBudForm]=useState({date:today(),flow:'in',category:'รายรับลูกค้า',amount:'',bank:BANKS[0],desc:'',currency:'THB',fxRate:1,amountOrig:''});
   const [budMsg,setBudMsg]=useState('');
   // Budget CF: opening balance per month (key: 'YYYY-MM' → amount)
   const [cfMonthOpen,setCfMonthOpen]=useState(()=>ls.get('cf_month_open',{}));
@@ -1635,10 +1675,11 @@ function DailyCashFlow(){
   function saveBudget(e){
     e.preventDefault();
     if(!isAdm){setBudMsg('⛔ เฉพาะ Admin เท่านั้นที่สามารถแก้ไขข้อมูลได้');setTimeout(()=>setBudMsg(''),3000);return;}
-    const nr=[...cfBudgets,{id:Date.now(),...budForm,amount:+budForm.amount}];
+    if(!budForm.amount||+budForm.amount<=0){setBudMsg('⚠️ กรุณากรอกจำนวนเงิน');setTimeout(()=>setBudMsg(''),3000);return;}
+    const nr=[...cfBudgets,{id:Date.now(),...budForm,amount:+budForm.amount,currency:budForm.currency||'THB',fx_rate:+budForm.fxRate||1,amount_orig:budForm.currency!=='THB'?+budForm.amountOrig||0:+budForm.amount,fx_source:fxSource||''}];
     setCfBudgets(nr);ls.set('cf_budgets',nr);
     setBudMsg('✅ บันทึก Budget Cashflow สำเร็จ');
-    setBudForm(f=>({...f,amount:'',desc:''}));
+    setBudForm(f=>({...f,amount:'',desc:'',currency:'THB',fxRate:1,amountOrig:''}));
     setTimeout(()=>setBudMsg(''),3000);
   }
   function delBudget(id){if(!isAdm)return;const nr=cfBudgets.filter(r=>r.id!==id);setCfBudgets(nr);ls.set('cf_budgets',nr);}
@@ -1949,6 +1990,7 @@ function DailyCashFlow(){
             <select value={form.bank} onChange={e=>setForm(f=>({...f,bank:e.target.value}))}>{BANKS.map((b,i)=><option key={b} value={b}>{i+1}. {b}</option>)}</select></div>
           <FxAmount
             amountTHB={form.amount} currency={form.currency} fxRate={form.fxRate} amountOrig={form.amountOrig}
+            autoRates={fxRates} rateSource={fxSource==='BOT'?'BOT':fxSource?'Open ER':''}
             onChange={p=>setForm(f=>({...f,amount:p.amountTHB,currency:p.currency,fxRate:p.fxRate,amountOrig:p.amountOrig}))}
           />
           <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>รายละเอียด</label><input placeholder="รายละเอียด" value={form.desc} onChange={e=>setForm(f=>({...f,desc:e.target.value}))}/></div>
@@ -2161,7 +2203,11 @@ function DailyCashFlow(){
                 </button>
               ))}
             </div>
-            <form onSubmit={saveBudget} style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:12,alignItems:'end'}}>
+            {fxLoading&&<div style={{fontSize:11,color:'#6b7280',marginBottom:8}}>⏳ กำลังโหลดอัตราแลกเปลี่ยน ธปท. ...</div>}
+            {!fxLoading&&fxSource&&<div style={{fontSize:11,color:'#166534',background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:6,padding:'4px 10px',marginBottom:8,display:'inline-flex',alignItems:'center',gap:6}}>
+              🏦 อัตราแลกเปลี่ยน: <strong>{fxSource==='BOT'?'ธนาคารแห่งประเทศไทย (BOT)':fxSource}</strong> — {new Date().toLocaleDateString('th-TH')}
+            </div>}
+            <form onSubmit={saveBudget} style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:12,alignItems:'end'}}>
               <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>วันที่</label><input type="date" value={budForm.date} onChange={e=>setBudForm(f=>({...f,date:e.target.value}))} required/></div>
               <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>หมวด</label>
                 <select value={budForm.category} onChange={e=>setBudForm(f=>({...f,category:e.target.value}))}>
@@ -2173,10 +2219,20 @@ function DailyCashFlow(){
                   {BANKS.map((b,i)=><option key={b} value={b}>{i+1}. {b}</option>)}
                 </select>
               </div>
-              <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>จำนวนเงิน (บาท)</label><input type="number" placeholder="0" value={budForm.amount} onChange={e=>setBudForm(f=>({...f,amount:e.target.value}))} required/></div>
+              <FxAmount
+                amountTHB={budForm.amount} currency={budForm.currency} fxRate={budForm.fxRate} amountOrig={budForm.amountOrig}
+                autoRates={fxRates} rateSource={fxSource==='BOT'?'BOT':fxSource?'Open ER':''}
+                onChange={p=>setBudForm(f=>({...f,amount:p.amountTHB,currency:p.currency,fxRate:p.fxRate,amountOrig:p.amountOrig}))}
+              />
               <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>รายละเอียด</label><input placeholder="รายละเอียด" value={budForm.desc} onChange={e=>setBudForm(f=>({...f,desc:e.target.value}))}/></div>
               <button type="submit" className="btn btn-primary">➕ เพิ่มรายการ</button>
-            </form></>}
+            </form>
+            {budForm.currency!=='THB'&&budForm.amount>0&&(
+              <div style={{marginTop:8,background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,padding:'8px 14px',fontSize:13,color:'#92400e'}}>
+                💱 <strong>{budForm.amountOrig} {budForm.currency}</strong> × {budForm.fxRate} = <strong style={{fontSize:15,color:'#16a34a'}}>฿{Number(budForm.amount).toLocaleString('th-TH',{minimumFractionDigits:2})}</strong>
+                {fxSource&&<span style={{marginLeft:8,fontSize:11,color:'#6b7280'}}>(อัตรา {fxSource==='BOT'?'ธปท.':fxSource})</span>}
+              </div>
+            )}</>}
           </div>
 
           {/* Sub-tab: Daily / Monthly */}
@@ -2280,8 +2336,12 @@ function DailyCashFlow(){
                           {expanded&&d.items.map(r=>(
                             <tr key={r.id} style={{background:'#fafbff'}}>
                               <td colSpan={2} style={{paddingLeft:32,fontSize:12,color:'#64748b'}}>{r.flow==='in'?'💰':'💸'} {r.category}</td>
-                              <td style={{textAlign:'right',color:'#16a34a',fontSize:12}}>{r.flow==='in'?'฿'+fmt(r.amount):'-'}</td>
-                              <td style={{textAlign:'right',color:'#dc2626',fontSize:12}}>{r.flow==='out'?'฿'+fmt(r.amount):'-'}</td>
+                              <td style={{textAlign:'right',color:'#16a34a',fontSize:12}}>
+                                {r.flow==='in'?<span>฿{fmt(r.amount)}{r.currency&&r.currency!=='THB'&&<span title={`${r.amount_orig} ${r.currency} × ${r.fx_rate}`} style={{marginLeft:4,fontSize:9,padding:'1px 4px',borderRadius:3,background:'#dbeafe',color:'#1d4ed8',verticalAlign:'middle',cursor:'help'}}>{r.currency}</span>}</span>:'-'}
+                              </td>
+                              <td style={{textAlign:'right',color:'#dc2626',fontSize:12}}>
+                                {r.flow==='out'?<span>฿{fmt(r.amount)}{r.currency&&r.currency!=='THB'&&<span title={`${r.amount_orig} ${r.currency} × ${r.fx_rate}`} style={{marginLeft:4,fontSize:9,padding:'1px 4px',borderRadius:3,background:'#fee2e2',color:'#dc2626',verticalAlign:'middle',cursor:'help'}}>{r.currency}</span>}</span>:'-'}
+                              </td>
                               <td style={{fontSize:12,color:'#64748b'}}>{r.desc||'-'}</td>
                               <td/>
                               {isAdm&&<td><button onClick={e=>{e.stopPropagation();delBudget(r.id);}} style={{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:13}}>🗑</button></td>}

@@ -98,6 +98,56 @@ def download_template():
         'Content-Disposition': 'attachment; filename="import_templates.xlsx"',
     })
 
+# ---- API: FX Rates (BOT → fallback open.er-api.com) ----
+@app.route('/api/fx_rates')
+def get_fx_rates():
+    import urllib.request, datetime
+    today_str = datetime.date.today().strftime('%Y-%m-%d')
+    bot_key = os.environ.get('BOT_API_KEY', '')
+
+    # 1) Try Bank of Thailand (BOT) API
+    if bot_key:
+        try:
+            url = (
+                'https://apigw1.bot.or.th/bot/public/Stat-ExchangeRate/v2/DAILY_AVG_EXG_RATE/'
+                f'?start_period={today_str}&end_period={today_str}'
+            )
+            req = urllib.request.Request(url, headers={
+                'X-IBM-Client-Id': bot_key,
+                'accept': 'application/json',
+            })
+            with urllib.request.urlopen(req, timeout=6) as r:
+                data = json.loads(r.read())
+            rates = {}
+            for item in data.get('result', {}).get('data', {}).get('data_detail', []):
+                cid = item.get('currency_id', '').strip()
+                # mid_rate preferred; fall back to selling_sight
+                mid = item.get('mid_rate') or item.get('selling_sight') or item.get('buying_sight')
+                if cid and mid:
+                    try:
+                        rates[cid] = round(float(str(mid).replace(',', '')), 4)
+                    except Exception:
+                        pass
+            if rates:
+                return jsonify({'source': 'BOT', 'date': today_str, 'rates': rates})
+        except Exception as e:
+            print(f'BOT API error: {e}')
+
+    # 2) Fallback: open.er-api.com (free, no key required)
+    try:
+        url = 'https://open.er-api.com/v6/latest/THB'
+        with urllib.request.urlopen(url, timeout=6) as r:
+            data = json.loads(r.read())
+        raw = data.get('rates', {})  # raw[X] = X per 1 THB → invert to get THB per 1 X
+        rates = {}
+        for code, rate in raw.items():
+            if rate and float(rate) != 0:
+                rates[code] = round(1.0 / float(rate), 4)
+        return jsonify({'source': 'open.er-api.com', 'date': today_str, 'rates': rates})
+    except Exception as e:
+        print(f'open.er-api.com error: {e}')
+        return jsonify({'error': str(e), 'rates': {}}), 200  # 200 so frontend doesn't crash
+
 # ---- API: get all data ----
 @app.route('/api/all', methods=['GET'])
 def get_all():
