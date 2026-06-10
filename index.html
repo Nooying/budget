@@ -108,6 +108,21 @@ const {useState,useEffect,useRef,useMemo} = React;
 const MONTHS_EN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const MONTHS_TH=['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
 const BANKS=['ธนาคารกรุงเทพ','ธนาคารกรุงไทย','ธนาคารกสิกรไทย','ธนาคารกรุงศรีอยุธยา','ธนาคารไทยพาณิชย์','ธนาคารทหารไทยธนชาต','EXIM Bank','UOB','LH Bank','CIMB Thai'];
+const CURRENCIES=[
+  {code:'THB',name:'บาท',symbol:'฿'},
+  {code:'USD',name:'ดอลลาร์สหรัฐ',symbol:'$'},
+  {code:'EUR',name:'ยูโร',symbol:'€'},
+  {code:'GBP',name:'ปอนด์สเตอร์ลิง',symbol:'£'},
+  {code:'JPY',name:'เยนญี่ปุ่น',symbol:'¥'},
+  {code:'CNY',name:'หยวนจีน',symbol:'¥'},
+  {code:'SGD',name:'ดอลลาร์สิงคโปร์',symbol:'S$'},
+  {code:'HKD',name:'ดอลลาร์ฮ่องกง',symbol:'HK$'},
+  {code:'AUD',name:'ดอลลาร์ออสเตรเลีย',symbol:'A$'},
+  {code:'MYR',name:'ริงกิตมาเลเซีย',symbol:'RM'},
+  {code:'VND',name:'ด่งเวียดนาม',symbol:'₫'},
+  {code:'INR',name:'รูปีอินเดีย',symbol:'₹'},
+  {code:'AED',name:'ดิรฮัมยูเออี',symbol:'AED'},
+];
 const LOAN_TYPES=['P/N (Promissory Note)','วงเงินกู้ (Loan)','OD (Overdraft)','L/C','T/R'];
 const DEPARTMENTS=['Sales','Marketing','Operations','Finance','HR','IT','Executive'];
 const REV_CATS=[
@@ -151,8 +166,20 @@ const ROLE_COLOR={admin:'badge-red',finance_manager:'badge-purple',dept_manager:
 /* ====== USER CONTEXT & HELPERS ====== */
 const UserCtx=React.createContext(null);
 // Admin และ Finance Manager เห็นข้อมูลทุกคน; Dept Manager / Executive เห็นแค่ตัวเอง
-const canSeeAll=u=>u&&(u.role==='admin'||u.role==='finance_manager');
-const filterOwn=(recs,u)=>canSeeAll(u)?recs:recs.filter(r=>!r.created_by||r.created_by===u.username);
+// ทุก User ที่ login แล้วเห็นข้อมูลทั้งหมด (edit ล็อกที่ Admin เท่านั้น)
+const canSeeAll=u=>!!u;
+const isAdmin=u=>u?.role==='admin';
+const filterOwn=(recs,_u)=>recs; // ทุก user เห็นข้อมูลทั้งหมด (edit ล็อกที่ Admin)
+function ReadOnlyBanner(){
+  const curUser=React.useContext(UserCtx);
+  if(isAdmin(curUser))return null;
+  return(<div style={{background:'#fef9c3',border:'1px solid #fcd34d',borderRadius:10,padding:'10px 16px',marginBottom:16,display:'flex',alignItems:'center',gap:10,fontSize:13}}>
+    <span style={{fontSize:18}}>🔒</span>
+    <div><strong style={{color:'#92400e'}}>โหมดดูอย่างเดียว</strong>
+      <span style={{color:'#78350f',marginLeft:8}}>เฉพาะ Admin เท่านั้นที่สามารถเพิ่ม แก้ไข หรือลบข้อมูลได้</span>
+    </div>
+  </div>);
+}
 // Users stored in localStorage (admin can add real users that persist)
 const getAppUsers=()=>ls.get('app_users',USERS_DB);
 const saveAppUsers=arr=>ls.set('app_users',arr);
@@ -545,31 +572,31 @@ function downloadSampleCSV(type){
 }
 
 /* ====== SHARED: ImportBar ====== */
-function ImportBar({onImport,onExport,onClearAll,count,label,sampleType}){
+function ImportBar({onImport,onExport,onClearAll,count,label,sampleType,disabled}){
   const [mode,setMode]=useState('append'); // append | replace
   return(
     <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-      <div style={{display:'flex',gap:0,border:'1px solid #d1d5db',borderRadius:8,overflow:'hidden',flexShrink:0}}>
+      {!disabled&&<div style={{display:'flex',gap:0,border:'1px solid #d1d5db',borderRadius:8,overflow:'hidden',flexShrink:0}}>
         {[['append','➕ เพิ่มเติม'],['replace','🔄 แทนที่ทั้งหมด']].map(([v,l])=>(
           <button key={v} type="button" onClick={()=>setMode(v)}
             style={{padding:'6px 12px',fontSize:12,fontWeight:600,cursor:'pointer',border:'none',background:mode===v?'#7c3aed':'#fff',color:mode===v?'#fff':'#374151'}}>
             {l}
           </button>
         ))}
-      </div>
-      <label className="btn btn-secondary" style={{cursor:'pointer',fontSize:13}}>
+      </div>}
+      {!disabled&&<label className="btn btn-secondary" style={{cursor:'pointer',fontSize:13}}>
         📥 Import CSV
         <input type="file" accept=".csv" style={{display:'none'}} onChange={e=>{
           const file=e.target.files[0];if(!file)return;
           importCSVFile(file,rows=>onImport(rows,mode));e.target.value='';
         }}/>
-      </label>
+      </label>}
       {sampleType&&<button className="btn btn-secondary" style={{fontSize:13,background:'#f0fdf4',color:'#16a34a',border:'1px solid #86efac'}}
         onClick={()=>downloadSampleCSV(sampleType)}>
         📄 ดาวน์โหลด CSV ตัวอย่าง
       </button>}
       <button className="btn btn-secondary" style={{fontSize:13}} onClick={onExport}>📤 Export Excel</button>
-      {count>0&&<button className="btn" style={{fontSize:13,background:'#fee2e2',color:'#991b1b',border:'1px solid #fca5a5'}}
+      {!disabled&&count>0&&<button className="btn" style={{fontSize:13,background:'#fee2e2',color:'#991b1b',border:'1px solid #fca5a5'}}
         onClick={()=>{if(window.confirm(`ลบ${label}ทั้งหมด ${count} รายการ?`))onClearAll();}}>
         🗑 ลบทั้งหมด ({count})
       </button>}
@@ -577,9 +604,75 @@ function ImportBar({onImport,onExport,onClearAll,count,label,sampleType}){
   );
 }
 
+/* ====== FX AMOUNT INPUT — สกุลเงินต่างประเทศ → บาท ====== */
+// props: amountTHB, currency, fxRate, amountOrig, onChange(patch)
+// patch = {amountTHB, currency, fxRate, amountOrig}
+function FxAmount({amountTHB,currency='THB',fxRate=1,amountOrig='',onChange}){
+  const cur=CURRENCIES.find(c=>c.code===currency)||CURRENCIES[0];
+  const isTHB=currency==='THB';
+  const calcTHB=(orig,rate)=>+(parseFloat(orig||0)*parseFloat(rate||1)).toFixed(2);
+
+  function onCurrencyChange(code){
+    if(code==='THB'){onChange({currency:'THB',fxRate:1,amountOrig:'',amountTHB:''});}
+    else{onChange({currency:code,fxRate:fxRate||1,amountOrig:amountOrig,amountTHB:calcTHB(amountOrig,fxRate||1)});}
+  }
+  function onOrigChange(v){
+    const thb=calcTHB(v,fxRate);
+    onChange({currency,fxRate,amountOrig:v,amountTHB:thb||''});
+  }
+  function onRateChange(v){
+    const thb=calcTHB(amountOrig,v);
+    onChange({currency,fxRate:v,amountOrig,amountTHB:thb||''});
+  }
+
+  return(
+    <div style={{display:'contents'}}>
+      {/* Currency selector */}
+      <div>
+        <label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>สกุลเงิน</label>
+        <select value={currency} onChange={e=>onCurrencyChange(e.target.value)} style={{fontSize:13}}>
+          {CURRENCIES.map(c=><option key={c.code} value={c.code}>{c.code} — {c.name}</option>)}
+        </select>
+      </div>
+      {/* If foreign currency: amount in that currency */}
+      {!isTHB&&<div>
+        <label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>จำนวน ({cur.code})</label>
+        <input type="number" min="0" step="any" placeholder="0.00"
+          value={amountOrig} onChange={e=>onOrigChange(e.target.value)}
+          style={{fontSize:13}}/>
+      </div>}
+      {/* If foreign currency: exchange rate */}
+      {!isTHB&&<div>
+        <label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>อัตราแลก (1 {cur.code} = ? บาท)</label>
+        <input type="number" min="0" step="any" placeholder="อัตราแลก"
+          value={fxRate} onChange={e=>onRateChange(e.target.value)}
+          style={{fontSize:13,borderColor:'#a5b4fc',background:'#f5f3ff'}}/>
+      </div>}
+      {/* THB amount — editable if THB, readonly if foreign */}
+      <div>
+        <label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>
+          จำนวนเงิน (บาท){!isTHB&&<span style={{marginLeft:6,fontSize:10,background:'#e0e7ff',color:'#3730a3',padding:'1px 6px',borderRadius:4}}>auto</span>}
+        </label>
+        {isTHB
+          ?<input type="number" min="0" step="any" placeholder="0.00" required
+              value={amountTHB} onChange={e=>onChange({currency,fxRate,amountOrig:'',amountTHB:e.target.value})}/>
+          :<div style={{padding:'8px 12px',borderRadius:8,border:'1px solid #a5b4fc',background:'#f5f3ff',fontWeight:700,fontSize:14,color:'#4338ca',minHeight:38}}>
+              ฿{amountTHB?Number(amountTHB).toLocaleString('th-TH',{minimumFractionDigits:2,maximumFractionDigits:2}):'-'}
+              {amountTHB>0&&<span style={{fontSize:11,color:'#6b7280',fontWeight:400,marginLeft:8}}>
+                ({cur.symbol}{parseFloat(amountOrig||0).toLocaleString()} × {parseFloat(fxRate||1).toLocaleString()})
+              </span>}
+           </div>
+        }
+      </div>
+    </div>
+  );
+}
+
 /* ====== REVENUE BUDGET ====== */
 function RevenueBudget(){
   const [budgets,setBudgets]=useState(()=>ls.get('rev_budgets',[]));
+  const curUser=React.useContext(UserCtx);
+  const isAdm=isAdmin(curUser);
   const [form,setForm]=useState({dept:DEPARTMENTS[0],cat:REV_CATS[0],month:new Date().getMonth()+1,year:new Date().getFullYear(),amount:'',bank:'',notes:''});
   const [msg,setMsg]=useState('');
   const [selected,setSelected]=useState(new Set());
@@ -589,12 +682,14 @@ function RevenueBudget(){
   function persist(nb){setBudgets(nb);ls.set('rev_budgets',nb);}
   function save(e){
     e.preventDefault();
+    if(!isAdm){setMsg('⛔ เฉพาะ Admin เท่านั้นที่สามารถแก้ไขข้อมูลได้');return;}
     persist([...budgets,{id:Date.now(),...form,amount:+form.amount,status:'draft'}]);
     setMsg('✅ บันทึกสำเร็จ');setTimeout(()=>setMsg(''),3000);
     setForm(f=>({...f,amount:'',notes:'',bank:''}));
   }
-  function del(id){persist(budgets.filter(b=>b.id!==id));}
+  function del(id){if(!isAdm)return;persist(budgets.filter(b=>b.id!==id));}
   function delSelected(){
+    if(!isAdm)return;
     if(!selected.size)return;
     if(window.confirm(`ลบ ${selected.size} รายการที่เลือก?`)){persist(budgets.filter(b=>!selected.has(b.id)));setSelected(new Set());}
   }
@@ -608,6 +703,7 @@ function RevenueBudget(){
     ]}],'revenue_budget.xlsx');
   }
   function doImport(rows,mode){
+    if(!isAdm)return;
     const parsed=rows.map((r,i)=>({
       id:Date.now()+i,
       dept:r['แผนก']||r.dept||DEPARTMENTS[0],
@@ -639,8 +735,9 @@ function RevenueBudget(){
           <h1 style={{fontSize:22,fontWeight:800,color:'#2e1065',margin:0}}>💰 งบประมาณรายรับ</h1>
           <p style={{color:'#64748b',fontSize:13,margin:0}}>ประมาณการรายรับ — ลูกหนี้ / เงินกู้ / ปันผล / อื่นๆ</p>
         </div>
-        <ImportBar onImport={doImport} onExport={doExport} onClearAll={()=>persist([])} count={budgets.length} label="งบรายรับ" sampleType="revenue"/>
+        <ImportBar onImport={doImport} onExport={doExport} onClearAll={()=>persist([])} count={budgets.length} label="งบรายรับ" sampleType="revenue" disabled={!isAdm}/>
       </div>
+      <ReadOnlyBanner/>
 
       {/* CSV Format hint */}
       <div style={{background:'#faf5ff',border:'1px solid #e9d5ff',borderRadius:10,padding:'10px 16px',marginBottom:16,fontSize:12,color:'#4c1d95'}}>
@@ -670,7 +767,7 @@ function RevenueBudget(){
         </div>
       )}
 
-      <div className="card" style={{marginBottom:12}}>
+      {isAdm&&<div className="card" style={{marginBottom:12}}>
         <h2 style={{fontWeight:700,fontSize:15,marginBottom:12,color:'#4c1d95'}}>บันทึกงบประมาณรายรับ</h2>
         <form onSubmit={save} style={{display:'grid',gridTemplateColumns:'repeat(8,1fr) auto',gap:10,alignItems:'end'}}>
           <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>แผนก</label>
@@ -695,7 +792,7 @@ function RevenueBudget(){
           <button type="submit" className="btn btn-primary" style={{whiteSpace:'nowrap'}}>+ บันทึก</button>
         </form>
         {msg&&<div style={{marginTop:10,fontSize:13,fontWeight:600,color:'#16a34a'}}>{msg}</div>}
-      </div>
+      </div>}
 
       <div className="card" style={{overflowX:'auto'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,gap:8,flexWrap:'wrap'}}>
@@ -708,16 +805,16 @@ function RevenueBudget(){
               <option value="">ทุกประเภท</option>{REV_CATS.map(c=><option key={c}>{c}</option>)}
             </select>
           </div>
-          {selected.size>0&&<button className="btn" style={{fontSize:12,background:'#fee2e2',color:'#991b1b',border:'1px solid #fca5a5'}} onClick={delSelected}>🗑 ลบที่เลือก ({selected.size})</button>}
+          {isAdm&&selected.size>0&&<button className="btn" style={{fontSize:12,background:'#fee2e2',color:'#991b1b',border:'1px solid #fca5a5'}} onClick={delSelected}>🗑 ลบที่เลือก ({selected.size})</button>}
         </div>
         <table>
           <thead><tr>
-            <th style={{width:36}}><input type="checkbox" checked={selected.size===filtered.length&&filtered.length>0} onChange={toggleAll}/></th>
-            <th>แผนก</th><th>ประเภทรายรับ</th><th>ธนาคาร/บัญชี</th><th>ปี/เดือน</th><th style={{textAlign:'right'}}>จำนวนเงิน</th><th>หมายเหตุ</th><th>สถานะ</th><th style={{width:40}}>ลบ</th>
+            {isAdm&&<th style={{width:36}}><input type="checkbox" checked={selected.size===filtered.length&&filtered.length>0} onChange={toggleAll}/></th>}
+            <th>แผนก</th><th>ประเภทรายรับ</th><th>ธนาคาร/บัญชี</th><th>ปี/เดือน</th><th style={{textAlign:'right'}}>จำนวนเงิน</th><th>หมายเหตุ</th><th>สถานะ</th>{isAdm&&<th style={{width:40}}>ลบ</th>}
           </tr></thead>
-          <tbody>{filtered.length===0?<tr><td colSpan={9} style={{textAlign:'center',padding:32,color:'#94a3b8'}}>ยังไม่มีข้อมูล — กรอกหรือ Import CSV</td></tr>:
+          <tbody>{filtered.length===0?<tr><td colSpan={isAdm?9:7} style={{textAlign:'center',padding:32,color:'#94a3b8'}}>ยังไม่มีข้อมูล — กรอกหรือ Import CSV</td></tr>:
             filtered.map(b=><tr key={b.id} style={{background:selected.has(b.id)?'#faf5ff':''}}>
-              <td><input type="checkbox" checked={selected.has(b.id)} onChange={()=>toggleSel(b.id)}/></td>
+              {isAdm&&<td><input type="checkbox" checked={selected.has(b.id)} onChange={()=>toggleSel(b.id)}/></td>}
               <td style={{fontWeight:600}}>{b.dept}</td>
               <td><span style={{fontSize:12,fontWeight:600,color:'#6b21a8'}}>{b.cat}</span></td>
               <td style={{fontSize:12,color:'#64748b'}}>{b.bank||'-'}</td>
@@ -725,7 +822,7 @@ function RevenueBudget(){
               <td style={{textAlign:'right',fontWeight:600,color:'#7c3aed'}}>฿{fmt(b.amount)}</td>
               <td style={{fontSize:12,color:'#64748b',maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{b.notes||'-'}</td>
               <td><span className={`badge ${b.status==='approved'?'badge-green':'badge-purple'}`}>{b.status==='approved'?'อนุมัติ':'ร่าง'}</span></td>
-              <td><button onClick={()=>{if(window.confirm('ลบรายการนี้?'))del(b.id);}} style={{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:16}}>🗑</button></td>
+              {isAdm&&<td><button onClick={()=>{if(window.confirm('ลบรายการนี้?'))del(b.id);}} style={{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:16}}>🗑</button></td>}
             </tr>)
           }</tbody>
           {filtered.length>0&&<tfoot><tr><td/><td colSpan={4}>รวม ปี {filterYear}</td><td style={{textAlign:'right',color:'#7c3aed'}}>฿{fmt(total)}</td><td/><td/><td/></tr></tfoot>}
@@ -737,6 +834,8 @@ function RevenueBudget(){
 
 /* ====== EXPENSE BUDGET ====== */
 function ExpenseBudget(){
+  const curUser=React.useContext(UserCtx);
+  const isAdm=isAdmin(curUser);
   const [budgets,setBudgets]=useState(()=>ls.get('exp_budgets',[]));
   const [form,setForm]=useState({dept:DEPARTMENTS[2],cat:EXP_CATS[0],month:new Date().getMonth()+1,year:new Date().getFullYear(),amount:'',vendor:'',notes:''});
   const [msg,setMsg]=useState('');
@@ -748,12 +847,14 @@ function ExpenseBudget(){
   function persist(nb){setBudgets(nb);ls.set('exp_budgets',nb);}
   function save(e){
     e.preventDefault();
+    if(!isAdm){setMsg('⛔ เฉพาะ Admin เท่านั้นที่สามารถแก้ไขข้อมูลได้');return;}
     persist([...budgets,{id:Date.now(),...form,amount:+form.amount,status:'draft'}]);
     setMsg('✅ บันทึกสำเร็จ');setTimeout(()=>setMsg(''),3000);
     setForm(f=>({...f,amount:'',vendor:'',notes:''}));
   }
-  function del(id){persist(budgets.filter(b=>b.id!==id));}
+  function del(id){if(!isAdm)return;persist(budgets.filter(b=>b.id!==id));}
   function delSelected(){
+    if(!isAdm)return;
     if(!selected.size)return;
     if(window.confirm(`ลบ ${selected.size} รายการที่เลือก?`)){persist(budgets.filter(b=>!selected.has(b.id)));setSelected(new Set());}
   }
@@ -767,6 +868,7 @@ function ExpenseBudget(){
     ]}],'expense_budget.xlsx');
   }
   function doImport(rows,mode){
+    if(!isAdm)return;
     const parsed=rows.map((r,i)=>({
       id:Date.now()+i,
       dept:r['แผนก']||r.dept||DEPARTMENTS[2],
@@ -799,8 +901,9 @@ function ExpenseBudget(){
           <h1 style={{fontSize:22,fontWeight:800,color:'#2e1065',margin:0}}>📋 งบประมาณรายจ่าย</h1>
           <p style={{color:'#64748b',fontSize:13,margin:0}}>เจ้าหนี้ / คืนเงินกู้ / ภาษี / เงินเดือน / ค่าใช้จ่ายอื่นๆ</p>
         </div>
-        <ImportBar onImport={doImport} onExport={doExport} onClearAll={()=>persist([])} count={budgets.length} label="งบรายจ่าย" sampleType="expense"/>
+        <ImportBar onImport={doImport} onExport={doExport} onClearAll={()=>persist([])} count={budgets.length} label="งบรายจ่าย" sampleType="expense" disabled={!isAdm}/>
       </div>
+      <ReadOnlyBanner/>
 
       {/* CSV Format hint */}
       <div style={{background:'#fffbeb',border:'1px solid #fde68a',borderRadius:10,padding:'10px 16px',marginBottom:16,fontSize:12,color:'#92400e'}}>
@@ -830,7 +933,7 @@ function ExpenseBudget(){
         </div>
       )}
 
-      <div className="card" style={{marginBottom:12}}>
+      {isAdm&&<div className="card" style={{marginBottom:12}}>
         <h2 style={{fontWeight:700,fontSize:15,marginBottom:12,color:'#4c1d95'}}>บันทึกงบประมาณรายจ่าย</h2>
         <form onSubmit={save} style={{display:'grid',gridTemplateColumns:'repeat(8,1fr) auto',gap:10,alignItems:'end'}}>
           <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>แผนก</label>
@@ -852,7 +955,7 @@ function ExpenseBudget(){
           <button type="submit" className="btn btn-primary" style={{whiteSpace:'nowrap'}}>+ บันทึก</button>
         </form>
         {msg&&<div style={{marginTop:10,fontSize:13,fontWeight:600,color:'#16a34a'}}>{msg}</div>}
-      </div>
+      </div>}
 
       <div className="card" style={{overflowX:'auto'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10,gap:8,flexWrap:'wrap'}}>
@@ -868,16 +971,16 @@ function ExpenseBudget(){
               <option value="">ทุกประเภท</option>{EXP_CATS.map(c=><option key={c}>{c}</option>)}
             </select>
           </div>
-          {selected.size>0&&<button className="btn" style={{fontSize:12,background:'#fee2e2',color:'#991b1b',border:'1px solid #fca5a5'}} onClick={delSelected}>🗑 ลบที่เลือก ({selected.size})</button>}
+          {isAdm&&selected.size>0&&<button className="btn" style={{fontSize:12,background:'#fee2e2',color:'#991b1b',border:'1px solid #fca5a5'}} onClick={delSelected}>🗑 ลบที่เลือก ({selected.size})</button>}
         </div>
         <table>
           <thead><tr>
-            <th style={{width:36}}><input type="checkbox" checked={selected.size===filtered.length&&filtered.length>0} onChange={()=>toggleAll(filtered)}/></th>
-            <th>แผนก</th><th>ประเภทรายจ่าย</th><th>Vendor/เจ้าหนี้</th><th>ปี/เดือน</th><th style={{textAlign:'right'}}>จำนวนเงิน</th><th>หมายเหตุ</th><th>สถานะ</th><th style={{width:40}}>ลบ</th>
+            {isAdm&&<th style={{width:36}}><input type="checkbox" checked={selected.size===filtered.length&&filtered.length>0} onChange={()=>toggleAll(filtered)}/></th>}
+            <th>แผนก</th><th>ประเภทรายจ่าย</th><th>Vendor/เจ้าหนี้</th><th>ปี/เดือน</th><th style={{textAlign:'right'}}>จำนวนเงิน</th><th>หมายเหตุ</th><th>สถานะ</th>{isAdm&&<th style={{width:40}}>ลบ</th>}
           </tr></thead>
-          <tbody>{filtered.length===0?<tr><td colSpan={9} style={{textAlign:'center',padding:32,color:'#94a3b8'}}>ยังไม่มีข้อมูล — กรอกหรือ Import CSV</td></tr>:
+          <tbody>{filtered.length===0?<tr><td colSpan={isAdm?9:7} style={{textAlign:'center',padding:32,color:'#94a3b8'}}>ยังไม่มีข้อมูล — กรอกหรือ Import CSV</td></tr>:
             filtered.map(b=><tr key={b.id} style={{background:selected.has(b.id)?'#faf5ff':''}}>
-              <td><input type="checkbox" checked={selected.has(b.id)} onChange={()=>toggleSel(b.id)}/></td>
+              {isAdm&&<td><input type="checkbox" checked={selected.has(b.id)} onChange={()=>toggleSel(b.id)}/></td>}
               <td style={{fontWeight:600}}>{b.dept}</td>
               <td><span style={{fontSize:12,fontWeight:600,color:'#92400e'}}>{b.cat}</span></td>
               <td style={{fontSize:12,color:'#64748b'}}>{b.vendor||'-'}</td>
@@ -885,10 +988,10 @@ function ExpenseBudget(){
               <td style={{textAlign:'right',fontWeight:600,color:'#d97706'}}>฿{fmt(b.amount)}</td>
               <td style={{fontSize:12,color:'#64748b',maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{b.notes||'-'}</td>
               <td><span className={`badge ${b.status==='approved'?'badge-green':'badge-purple'}`}>{b.status==='approved'?'อนุมัติ':'ร่าง'}</span></td>
-              <td><button onClick={()=>{if(window.confirm('ลบรายการนี้?'))del(b.id);}} style={{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:16}}>🗑</button></td>
+              {isAdm&&<td><button onClick={()=>{if(window.confirm('ลบรายการนี้?'))del(b.id);}} style={{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:16}}>🗑</button></td>}
             </tr>)
           }</tbody>
-          {filtered.length>0&&<tfoot><tr><td/><td colSpan={4}>รวม</td><td style={{textAlign:'right',color:'#d97706'}}>฿{fmt(total)}</td><td/><td/><td/></tr></tfoot>}
+          {filtered.length>0&&<tfoot><tr>{isAdm&&<td/>}<td colSpan={4}>รวม</td><td style={{textAlign:'right',color:'#d97706'}}>฿{fmt(total)}</td><td/><td/>{isAdm&&<td/>}</tr></tfoot>}
         </table>
       </div>
     </div>
@@ -904,6 +1007,8 @@ function LoanPage(){
     {id:4,bank:'ธนาคารกรุงเทพ',loan_type:'P/N (Promissory Note)',txn_type:'repay',date:'2025-07-15',amount:2000000,interest_rate:0,due_date:'',ref:'REPAY-2025-001',note:'ชำระคืนบางส่วน'},
   ]));
 
+  const curUser=React.useContext(UserCtx);
+  const isAdm=isAdmin(curUser);
   const [form,setForm]=useState({bank:BANKS[0],loan_type:LOAN_TYPES[0],txn_type:'draw',date:today(),amount:'',interest_rate:'',due_date:'',ref:'',note:''});
   const [msg,setMsg]=useState('');
   const [filterBank,setFilterBank]=useState('');
@@ -918,6 +1023,7 @@ function LoanPage(){
 
   function save(e){
     e.preventDefault();
+    if(!isAdm){setMsg('⛔ เฉพาะ Admin เท่านั้นที่สามารถแก้ไขข้อมูลได้');return;}
     const newId=Date.now();
     const newRec={id:newId,...form,amount:+form.amount,interest_rate:+form.interest_rate||0};
     const nr=[...records,newRec];
@@ -945,7 +1051,7 @@ function LoanPage(){
     setTimeout(()=>setMsg(''),5000);
   }
 
-  function delRecord(id){if(window.confirm('ต้องการลบรายการนี้?')){const nr=records.filter(r=>r.id!==id);setRecords(nr);ls.set('loan_records',nr);}}
+  function delRecord(id){if(!isAdm)return;if(window.confirm('ต้องการลบรายการนี้?')){const nr=records.filter(r=>r.id!==id);setRecords(nr);ls.set('loan_records',nr);}}
 
   function doExport(){
     exportExcel([{name:'Loan Records',data:[
@@ -955,6 +1061,7 @@ function LoanPage(){
   }
 
   function doImportLoan(rows,mode){
+    if(!isAdm)return;
     const parsed=rows.map((r,i)=>({
       id:Date.now()+i,
       bank:r['ธนาคาร']||r.bank||BANKS[0],
@@ -1029,11 +1136,12 @@ function LoanPage(){
           <p style={{color:'#64748b',fontSize:13,marginTop:4}}>P/N, Loan, OD — บันทึกการกู้, ชำระคืน, ดอกเบี้ย</p>
         </div>
         <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
-          <ImportBar onImport={doImportLoan} onExport={doExport} onClearAll={()=>{setRecords([]);ls.set('loan_records',[]);}} count={records.length} label="เงินกู้"/>
-          <button className="btn btn-primary" onClick={()=>setShowForm(true)}>+ บันทึกรายการ</button>
+          <ImportBar onImport={doImportLoan} onExport={doExport} onClearAll={()=>{setRecords([]);ls.set('loan_records',[]);}} count={records.length} label="เงินกู้" disabled={!isAdm}/>
+          {isAdm&&<button className="btn btn-primary" onClick={()=>setShowForm(true)}>+ บันทึกรายการ</button>}
         </div>
       </div>
 
+      <ReadOnlyBanner/>
       {/* Summary KPIs */}
       <div className="kpi-grid" style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:20}}>
         <KpiCard label="เบิกกู้รวม" value={`฿${fmtM(totalDraw)}`} icon="💳" borderColor="#0891b2" bg="#f0f9ff"/>
@@ -1186,7 +1294,7 @@ function LoanPage(){
                 <td style={{color:r.due_date&&new Date(r.due_date)<new Date()?'#dc2626':'inherit'}}>{r.due_date||'-'}</td>
                 <td style={{color:'#64748b',fontSize:12}}>{r.ref||'-'}</td>
                 <td style={{maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:12}}>{r.note||'-'}</td>
-                <td><button onClick={()=>delRecord(r.id)} style={{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:16}}>🗑</button></td>
+                {isAdm&&<td><button onClick={()=>delRecord(r.id)} style={{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:16}}>🗑</button></td>}
               </tr>;
             })
           }</tbody>
@@ -1254,35 +1362,29 @@ function LoanPage(){
 /* ====== ACTUAL ENTRY ====== */
 function ActualEntry(){
   const curUser=React.useContext(UserCtx);
+  const isAdm=isAdmin(curUser);
   const [tab,setTab]=useState('revenue');
   // Admin/Finance เห็นทั้งหมด, คนอื่นเห็นแค่ของตัวเอง
   const [records,setRecords]=useState(()=>filterOwn(ls.get('actual_records',[]),curUser));
-  const [form,setForm]=useState({dept:DEPARTMENTS[0],cat:REV_CATS[0],date:'',amount:'',ref:'',desc:'',vendor:''});
+  const [form,setForm]=useState({dept:DEPARTMENTS[0],cat:REV_CATS[0],date:'',amount:'',ref:'',desc:'',vendor:'',currency:'THB',fxRate:1,amountOrig:''});
   const [msg,setMsg]=useState('');
   const [filterMonth,setFilterMonth]=useState('');
   const [selected,setSelected]=useState(new Set());
 
   useEffect(()=>{setForm(f=>({...f,cat:(tab==='revenue'?REV_CATS:EXP_CATS)[0]}));setSelected(new Set());},[tab]);
 
-  // persist: admin saves all, user saves only own records merged with others
-  function persist(nr){
-    if(canSeeAll(curUser)){
-      setRecords(nr);ls.set('actual_records',nr);
-    }else{
-      const all=ls.get('actual_records',[]);
-      const others=all.filter(r=>r.created_by&&r.created_by!==curUser.username);
-      ls.set('actual_records',[...others,...nr]);
-      setRecords(nr);
-    }
-  }
+  function persist(nr){setRecords(nr);ls.set('actual_records',nr);}
   function save(e){
     e.preventDefault();
-    persist([...records,{id:Date.now(),type:tab,...form,amount:+form.amount,created_by:curUser.username}]);
-    setMsg('✅ บันทึกสำเร็จ');setForm(f=>({...f,amount:'',ref:'',desc:'',vendor:''}));
+    if(!isAdm){setMsg('⛔ เฉพาะ Admin เท่านั้นที่สามารถแก้ไขข้อมูลได้');setTimeout(()=>setMsg(''),3000);return;}
+    if(!form.amount||+form.amount<=0){setMsg('⚠️ กรุณากรอกจำนวนเงิน');setTimeout(()=>setMsg(''),3000);return;}
+    persist([...records,{id:Date.now(),type:tab,...form,amount:+form.amount,currency:form.currency||'THB',fx_rate:+form.fxRate||1,amount_orig:form.currency!=='THB'?+form.amountOrig||0:+form.amount,created_by:curUser.username}]);
+    setMsg('✅ บันทึกสำเร็จ');setForm(f=>({...f,amount:'',ref:'',desc:'',vendor:'',currency:'THB',fxRate:1,amountOrig:''}));
     setTimeout(()=>setMsg(''),3000);
   }
-  function del(id){persist(records.filter(r=>r.id!==id));}
+  function del(id){if(!isAdm)return;persist(records.filter(r=>r.id!==id));}
   function delSelected(){
+    if(!isAdm)return;
     if(!selected.size)return;
     if(window.confirm(`ลบ ${selected.size} รายการที่เลือก?`)){persist(records.filter(r=>!selected.has(r.id)));setSelected(new Set());}
   }
@@ -1295,6 +1397,7 @@ function ActualEntry(){
     exportExcel([{name:`Actual_${tab==='revenue'?'Revenue':'Expense'}`,data:[cols,...rows]}],`actual_${tab}.xlsx`);
   }
   function doImport(rows,mode){
+    if(!isAdm)return;
     const parsed=rows.map((r,i)=>({
       id:Date.now()+i,
       type:tab,
@@ -1332,7 +1435,7 @@ function ActualEntry(){
           <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} style={{width:120}}>
             <option value="">ทุกเดือน</option>{MONTHS_TH.map((m,i)=><option key={i+1} value={i+1}>{m}</option>)}
           </select>
-          <ImportBar onImport={doImport} onExport={doExport} onClearAll={()=>persist(records.filter(r=>r.type!==tab||r.source==='loan_auto'))} count={records.filter(r=>r.type===tab&&r.source!=='loan_auto').length} label={`ผลจริง${tab==='revenue'?'รายรับ':'รายจ่าย'}`} sampleType={tab==='revenue'?'actual_revenue':'actual_expense'}/>
+          <ImportBar onImport={doImport} onExport={doExport} onClearAll={()=>persist(records.filter(r=>r.type!==tab||r.source==='loan_auto'))} count={records.filter(r=>r.type===tab&&r.source!=='loan_auto').length} label={`ผลจริง${tab==='revenue'?'รายรับ':'รายจ่าย'}`} sampleType={tab==='revenue'?'actual_revenue':'actual_expense'} disabled={!isAdm}/>
         </div>
       </div>
 
@@ -1373,20 +1476,29 @@ function ActualEntry(){
         </div>
       )}
 
+      <ReadOnlyBanner/>
       {/* Form */}
-      <div className="card" style={{marginBottom:12}}>
+      {isAdm&&<div className="card" style={{marginBottom:12}}>
         <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>บันทึกรายการ{tab==='revenue'?'รายรับ':'รายจ่าย'}จริง</h3>
-        <form onSubmit={save} style={{display:'grid',gridTemplateColumns:'repeat(7,1fr) auto',gap:10,alignItems:'end'}}>
+        <form onSubmit={save} style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:10,alignItems:'end'}}>
           <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>วันที่ *</label><input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} required/></div>
           <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>แผนก</label><select value={form.dept} onChange={e=>setForm(f=>({...f,dept:e.target.value}))}>{DEPARTMENTS.map(d=><option key={d}>{d}</option>)}</select></div>
-          <div style={{gridColumn:'span 2'}}><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>{tab==='revenue'?'ประเภทรายรับ':'ประเภทรายจ่าย'}</label>
+          <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>{tab==='revenue'?'ประเภทรายรับ':'ประเภทรายจ่าย'}</label>
             <select value={form.cat} onChange={e=>setForm(f=>({...f,cat:e.target.value}))}>{tabCats.map(c=><option key={c}>{c}</option>)}</select></div>
-          <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>จำนวนเงิน *</label><input type="number" min="0" step="0.01" placeholder="0.00" value={form.amount} onChange={e=>setForm(f=>({...f,amount:e.target.value}))} required/></div>
+          <FxAmount
+            amountTHB={form.amount} currency={form.currency} fxRate={form.fxRate} amountOrig={form.amountOrig}
+            onChange={p=>setForm(f=>({...f,amount:p.amountTHB,currency:p.currency,fxRate:p.fxRate,amountOrig:p.amountOrig}))}
+          />
           <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>{tab==='expense'?'Vendor/เจ้าหนี้':'ธนาคาร/แหล่ง'}</label><input placeholder={tab==='expense'?'ชื่อเจ้าหนี้':'ชื่อลูกหนี้/แหล่งเงิน'} value={form.vendor} onChange={e=>setForm(f=>({...f,vendor:e.target.value}))}/></div>
           <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>รายละเอียด/เลขที่</label><input placeholder="เลขที่เอกสาร/รายละเอียด" value={form.desc} onChange={e=>setForm(f=>({...f,desc:e.target.value}))}/></div>
           <button type="submit" className="btn btn-primary" style={{whiteSpace:'nowrap'}}>+ บันทึก</button>
         </form>
-      </div>
+        {form.currency!=='THB'&&form.amount>0&&(
+          <div style={{marginTop:8,background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,padding:'8px 14px',fontSize:13,color:'#92400e'}}>
+            💱 <strong>{form.amountOrig} {form.currency}</strong> × {form.fxRate} = <strong style={{fontSize:15,color:'#16a34a'}}>฿{Number(form.amount).toLocaleString('th-TH',{minimumFractionDigits:2})}</strong>
+          </div>
+        )}
+      </div>}
 
       {/* Table */}
       <div className="card" style={{overflowX:'auto'}}>
@@ -1395,35 +1507,37 @@ function ActualEntry(){
             {filtered.filter(r=>r.source==='loan_auto').length>0&&
               <span style={{marginLeft:8,fontSize:11,background:'#fef9c3',color:'#92400e',padding:'2px 8px',borderRadius:4}}>🔗 {filtered.filter(r=>r.source==='loan_auto').length} Auto จากเงินกู้</span>}
           </span>
-          {selected.size>0&&<button className="btn" style={{fontSize:12,background:'#fee2e2',color:'#991b1b',border:'1px solid #fca5a5'}} onClick={delSelected}>🗑 ลบที่เลือก ({selected.size})</button>}
+          {isAdm&&selected.size>0&&<button className="btn" style={{fontSize:12,background:'#fee2e2',color:'#991b1b',border:'1px solid #fca5a5'}} onClick={delSelected}>🗑 ลบที่เลือก ({selected.size})</button>}
         </div>
         <table>
           <thead><tr>
-            <th style={{width:36}}><input type="checkbox" checked={selected.size===filtered.length&&filtered.length>0} onChange={()=>toggleAll(filtered)}/></th>
+            {isAdm&&<th style={{width:36}}><input type="checkbox" checked={selected.size===filtered.length&&filtered.length>0} onChange={()=>toggleAll(filtered)}/></th>}
             <th>วันที่</th><th>แผนก</th><th>ประเภท</th><th>Vendor/แหล่งเงิน</th><th>รายละเอียด</th><th style={{textAlign:'right'}}>จำนวนเงิน</th><th>แหล่ง</th>
             {canSeeAll(curUser)&&<th>ผู้บันทึก</th>}
-            <th style={{width:40}}>ลบ</th>
+            {isAdm&&<th style={{width:40}}>ลบ</th>}
           </tr></thead>
-          <tbody>{filtered.length===0?<tr><td colSpan={canSeeAll(curUser)?10:9} style={{textAlign:'center',padding:32,color:'#94a3b8'}}>ยังไม่มีข้อมูล</td></tr>:
+          <tbody>{filtered.length===0?<tr><td colSpan={isAdm?(canSeeAll(curUser)?10:9):(canSeeAll(curUser)?9:8)} style={{textAlign:'center',padding:32,color:'#94a3b8'}}>ยังไม่มีข้อมูล</td></tr>:
             filtered.map(r=>(
               <tr key={r.id} style={{background:r.source==='loan_auto'?'#fffbeb':selected.has(r.id)?'#faf5ff':''}}>
-                <td><input type="checkbox" checked={selected.has(r.id)} onChange={()=>toggleSel(r.id)}/></td>
+                {isAdm&&<td><input type="checkbox" checked={selected.has(r.id)} onChange={()=>toggleSel(r.id)}/></td>}
                 <td style={{fontWeight:600,fontSize:12}}>{r.date}</td>
                 <td style={{fontWeight:600,fontSize:12}}>{r.dept}</td>
                 <td><span style={{fontSize:11,fontWeight:600,color:tab==='revenue'?'#6b21a8':'#92400e',background:tab==='revenue'?'#f3e8ff':'#fffbeb',padding:'2px 8px',borderRadius:4}}>{r.cat}</span></td>
                 <td style={{fontSize:12,color:'#64748b',maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{r.vendor||'-'}</td>
                 <td style={{maxWidth:180,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:12}}>{r.desc||r.ref||'-'}</td>
-                <td style={{textAlign:'right',fontWeight:700,color:tab==='revenue'?'#16a34a':'#dc2626'}}>฿{fmt(r.amount)}</td>
+                <td style={{textAlign:'right',fontWeight:700,color:tab==='revenue'?'#16a34a':'#dc2626'}}>
+                  ฿{fmt(r.amount)}{r.currency&&r.currency!=='THB'&&<span title={`${r.amount_orig} ${r.currency} × ${r.fx_rate}`} style={{marginLeft:4,fontSize:9,padding:'1px 4px',borderRadius:3,background:tab==='revenue'?'#dbeafe':'#fee2e2',color:tab==='revenue'?'#1d4ed8':'#dc2626',verticalAlign:'middle',cursor:'help'}}>{r.currency}</span>}
+                </td>
                 <td><span style={{fontSize:10,padding:'2px 6px',borderRadius:4,
                   background:r.source==='loan_auto'?'#fef9c3':r.source==='cashflow_link'?'#e0f2fe':'#f1f5f9',
                   color:r.source==='loan_auto'?'#92400e':r.source==='cashflow_link'?'#0369a1':'#64748b'}}>
                   {r.source==='loan_auto'?'🔗เงินกู้':r.source==='cashflow_link'?'🔗 CF รายวัน':'✏️บันทึก'}
                 </span></td>
                 {canSeeAll(curUser)&&<td style={{fontSize:11,color:'#64748b'}}>{r.created_by?('👤 '+r.created_by):'—'}</td>}
-                <td>{r.source==='cashflow_link'||r.source==='loan_auto'
+                {isAdm&&<td>{r.source==='cashflow_link'||r.source==='loan_auto'
                   ?<span title={r.source==='cashflow_link'?'ลบได้จากหน้า CF รายวัน':'ลบได้จากหน้าเงินกู้'} style={{fontSize:11,color:'#94a3b8',cursor:'help'}}>🔒</span>
                   :<button onClick={()=>{if(window.confirm('ลบรายการนี้?'))del(r.id);}} style={{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:16}}>🗑</button>
-                }</td>
+                }</td>}
               </tr>
             ))
           }</tbody>
@@ -1437,12 +1551,13 @@ function ActualEntry(){
 /* ====== DAILY CASH FLOW ====== */
 function DailyCashFlow(){
   const curUser=React.useContext(UserCtx);
+  const isAdm=isAdmin(curUser);
   const [dailyPlan,setDailyPlan]=useState(()=>ls.get('daily_cashflow',[]));
   // ยอดยกมาเริ่มต้น (ต้นปี/ต้นงวด) — ผู้ใช้กำหนดได้
   const [openingYear,setOpeningYear]=useState(()=>ls.get('cf_opening_year',0));
   const [editOpening,setEditOpening]=useState(false);
   const [openingInput,setOpeningInput]=useState('');
-  const [form,setForm]=useState({date:today(),type:'inflow',category:'รายรับลูกค้า',amount:'',bank:BANKS[0],desc:'',ref:''});
+  const [form,setForm]=useState({date:today(),type:'inflow',category:'รายรับลูกค้า',amount:'',bank:BANKS[0],desc:'',ref:'',currency:'THB',fxRate:1,amountOrig:''});
   const [viewTab,setViewTab]=useState('daily'); // daily | monthly | yearly | budget
   const [filterMonth,setFilterMonth]=useState('');
   const [filterYear,setFilterYear]=useState(new Date().getFullYear().toString());
@@ -1456,6 +1571,8 @@ function DailyCashFlow(){
   const [openInput,setOpenInput]=useState('');
   const [budExpandDate,setBudExpandDate]=useState(null);
   const [budViewTab,setBudViewTab]=useState('daily'); // daily | monthly
+  const [budFilterYear,setBudFilterYear]=useState(new Date().getFullYear().toString());
+  const [budFilterMonth,setBudFilterMonth]=useState(''); // '' = ทุกเดือน
   const [msg,setMsg]=useState('');
   const [expandDate,setExpandDate]=useState(null);
 
@@ -1465,6 +1582,7 @@ function DailyCashFlow(){
   };
 
   function saveOpening(){
+    if(!isAdm)return;
     const v=parseFloat(openingInput)||0;
     setOpeningYear(v);ls.set('cf_opening_year',v);
     setEditOpening(false);setMsg('✅ บันทึกยอดยกมาสำเร็จ');setTimeout(()=>setMsg(''),3000);
@@ -1472,8 +1590,10 @@ function DailyCashFlow(){
 
   function save(e){
     e.preventDefault();
+    if(!isAdm){setMsg('⛔ เฉพาะ Admin เท่านั้นที่สามารถแก้ไขข้อมูลได้');setTimeout(()=>setMsg(''),3000);return;}
     const cfId=Date.now();
-    const newRec={id:cfId,...form,amount:+form.amount,created_by:curUser?.username};
+    if(!form.amount||+form.amount<=0){setMsg('⚠️ กรุณากรอกจำนวนเงิน');setTimeout(()=>setMsg(''),3000);return;}
+    const newRec={id:cfId,...form,amount:+form.amount,currency:form.currency||'THB',fx_rate:+form.fxRate||1,amount_orig:form.currency!=='THB'?+form.amountOrig||0:+form.amount,created_by:curUser?.username};
     const nr=[...dailyPlan,newRec];
     setDailyPlan(nr);ls.set('daily_cashflow',nr);
     // ---- link to actual_records ----
@@ -1487,6 +1607,9 @@ function DailyCashFlow(){
       dept:curUser?.dept||'Finance',
       date:form.date,
       amount:+form.amount,
+      currency:form.currency||'THB',
+      fx_rate:+form.fxRate||1,
+      amount_orig:form.currency!=='THB'?+form.amountOrig||0:+form.amount,
       bank:form.bank||'',
       ref:form.ref||'',
       desc:form.desc||'',
@@ -1495,11 +1618,12 @@ function DailyCashFlow(){
     };
     ls.set('actual_records',[...actRecs,linked]);
     setMsg('✅ บันทึกสำเร็จ — เชื่อมไปหน้าบันทึกผลจริงอัตโนมัติ');
-    setForm(f=>({...f,amount:'',ref:'',desc:''}));
+    setForm(f=>({...f,amount:'',ref:'',desc:'',currency:'THB',fxRate:1,amountOrig:''}))
     setTimeout(()=>setMsg(''),3000);
   }
 
   function del(id){
+    if(!isAdm)return;
     const nr=dailyPlan.filter(r=>r.id!==id);
     setDailyPlan(nr);ls.set('daily_cashflow',nr);
     // ลบ linked actual_record ด้วย
@@ -1510,19 +1634,21 @@ function DailyCashFlow(){
   // Budget CF save/delete/export/import
   function saveBudget(e){
     e.preventDefault();
+    if(!isAdm){setBudMsg('⛔ เฉพาะ Admin เท่านั้นที่สามารถแก้ไขข้อมูลได้');setTimeout(()=>setBudMsg(''),3000);return;}
     const nr=[...cfBudgets,{id:Date.now(),...budForm,amount:+budForm.amount}];
     setCfBudgets(nr);ls.set('cf_budgets',nr);
     setBudMsg('✅ บันทึก Budget Cashflow สำเร็จ');
     setBudForm(f=>({...f,amount:'',desc:''}));
     setTimeout(()=>setBudMsg(''),3000);
   }
-  function delBudget(id){const nr=cfBudgets.filter(r=>r.id!==id);setCfBudgets(nr);ls.set('cf_budgets',nr);}
+  function delBudget(id){if(!isAdm)return;const nr=cfBudgets.filter(r=>r.id!==id);setCfBudgets(nr);ls.set('cf_budgets',nr);}
   function exportBudgetCF(){
     const rows=[['วันที่','ประเภท','หมวด','ธนาคาร','จำนวนเงิน','รายละเอียด'],
       ...cfBudgets.map(r=>[r.date,r.flow==='in'?'รับ':'จ่าย',r.category,r.bank||'',r.amount,r.desc||''])];
     exportExcel([{name:'Budget CF',data:rows}],'budget_cf.xlsx');
   }
   function importBudgetCF(rows,mode){
+    if(!isAdm)return;
     function parseFlow(v){
       const s=String(v||'').trim().toLowerCase();
       if(s==='รับ'||s==='in'||s==='inflow'||s==='revenue')return 'in';
@@ -1552,8 +1678,12 @@ function DailyCashFlow(){
     setBudMsg('✅ '+(mode==='replace'?'แทนที่':'เพิ่ม')+' '+parsed.length+' รายการ');
   }
 
-  // Budget monthly summary
-  const cfBudgetFiltered=cfBudgets.filter(r=>r.date?.startsWith(filterYear));
+  // Budget monthly summary — filter by budFilterYear + budFilterMonth
+  const cfBudgetFiltered=cfBudgets.filter(r=>{
+    if(!r.date?.startsWith(budFilterYear))return false;
+    if(budFilterMonth&&r.date.slice(5,7)!==String(budFilterMonth).padStart(2,'0'))return false;
+    return true;
+  });
 
   // Build daily rows for Budget CF with running balance per month
   function saveCfMonthOpen(mk,val){
@@ -1681,6 +1811,7 @@ function DailyCashFlow(){
   }
 
   function doImportCF(rows,mode){
+    if(!isAdm)return;
     function parseType(v){
       const s=String(v||'').trim().toLowerCase();
       if(s==='รับ'||s==='inflow'||s==='in'||s==='revenue'||s==='รายรับ'||s==='receive')return 'inflow';
@@ -1737,10 +1868,11 @@ function DailyCashFlow(){
           <select value={filterMonth} onChange={e=>setFilterMonth(e.target.value)} style={{width:110}}>
             <option value="">ทุกเดือน</option>{MONTHS_EN.map((m,i)=><option key={i+1} value={i+1}>{m}</option>)}
           </select>
-          <ImportBar onImport={doImportCF} onExport={doExport} onClearAll={()=>{setDailyPlan([]);ls.set('daily_cashflow',[]);}} count={dailyPlan.length} label="Cash Flow (Manual)"/>
+          <ImportBar onImport={doImportCF} onExport={doExport} onClearAll={()=>{setDailyPlan([]);ls.set('daily_cashflow',[]);}} count={dailyPlan.length} label="Cash Flow (Manual)" disabled={!isAdm}/>
         </div>
       </div>
 
+      <ReadOnlyBanner/>
       {/* Opening Balance Setting */}
       <div style={{background:'linear-gradient(135deg,#2e1065,#6d28d9)',borderRadius:12,padding:20,marginBottom:20,color:'#fff'}}>
         <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',flexWrap:'wrap',gap:12}}>
@@ -1758,7 +1890,7 @@ function DailyCashFlow(){
                 <button onClick={()=>setEditOpening(false)} className="btn btn-secondary">ยกเลิก</button>
               </>
             ):(
-              <button onClick={()=>{setEditOpening(true);setOpeningInput(String(openingYear));}}
+              isAdm&&<button onClick={()=>{setEditOpening(true);setOpeningInput(String(openingYear));}}
                 className="btn" style={{background:'rgba(255,255,255,.2)',color:'#fff',border:'1px solid rgba(255,255,255,.4)'}}>
                 ✏️ แก้ไขยอดยกมา
               </button>
@@ -1798,7 +1930,7 @@ function DailyCashFlow(){
       )}
 
       {/* Entry Form */}
-      <div className="card" style={{marginBottom:16}}>
+      {isAdm&&<div className="card" style={{marginBottom:16}}>
         <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>บันทึกรายการรับ/จ่าย</h3>
         {msg&&<div style={{marginBottom:10,fontSize:13,fontWeight:600}}>{msg}</div>}
         <div style={{display:'flex',gap:8,marginBottom:16}}>
@@ -1809,17 +1941,23 @@ function DailyCashFlow(){
             </button>
           ))}
         </div>
-        <form onSubmit={save} style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:12,alignItems:'end'}}>
+        <form onSubmit={save} style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(150px,1fr))',gap:12,alignItems:'end'}}>
           <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>วันที่</label><input type="date" value={form.date} onChange={e=>setForm(f=>({...f,date:e.target.value}))} required/></div>
           <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>หมวด</label>
             <select value={form.category} onChange={e=>setForm(f=>({...f,category:e.target.value}))}>{DAILY_CATS[form.type].map(c=><option key={c}>{c}</option>)}</select></div>
           <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>ธนาคาร</label>
             <select value={form.bank} onChange={e=>setForm(f=>({...f,bank:e.target.value}))}>{BANKS.map((b,i)=><option key={b} value={b}>{i+1}. {b}</option>)}</select></div>
-          <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>จำนวนเงิน</label><input type="number" placeholder="0" value={form.amount} onChange={e=>setForm(f=>({...f,amount:e.target.value}))} required/></div>
+          <FxAmount
+            amountTHB={form.amount} currency={form.currency} fxRate={form.fxRate} amountOrig={form.amountOrig}
+            onChange={p=>setForm(f=>({...f,amount:p.amountTHB,currency:p.currency,fxRate:p.fxRate,amountOrig:p.amountOrig}))}
+          />
           <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>รายละเอียด</label><input placeholder="รายละเอียด" value={form.desc} onChange={e=>setForm(f=>({...f,desc:e.target.value}))}/></div>
-          <button type="submit" className="btn btn-primary">บันทึก</button>
+          <div style={{display:'flex',alignItems:'flex-end'}}><button type="submit" className="btn btn-primary" style={{width:'100%'}}>บันทึก</button></div>
         </form>
-      </div>
+        {form.currency!=='THB'&&form.amount>0&&<div style={{marginTop:10,padding:'8px 14px',background:'#fffbeb',border:'1px solid #fde68a',borderRadius:8,fontSize:13,color:'#92400e'}}>
+          💱 <strong>{form.amountOrig} {form.currency}</strong> × {form.fxRate} = <strong style={{fontSize:15,color:'#16a34a'}}>฿{Number(form.amount).toLocaleString('th-TH',{minimumFractionDigits:2})}</strong>
+        </div>}
+      </div>}
 
       {/* View Tabs */}
       <div style={{display:'flex',gap:4,background:'#f5f3ff',padding:4,borderRadius:12,width:'fit-content',marginBottom:16,flexWrap:'wrap'}}>
@@ -1864,11 +2002,15 @@ function DailyCashFlow(){
                           {r.type==='inflow'?'💰':'💸'} {r.category}
                           <span style={{marginLeft:6,fontSize:10,padding:'1px 5px',borderRadius:3,background:'#f1f5f9',color:'#64748b'}}>✏️Manual</span>
                         </td>
-                        <td style={{textAlign:'right',color:'#16a34a',fontSize:12}}>{r.type==='inflow'?`฿${fmt(r.amount)}`:'-'}</td>
-                        <td style={{textAlign:'right',color:'#dc2626',fontSize:12}}>{r.type==='outflow'?`฿${fmt(r.amount)}`:'-'}</td>
+                        <td style={{textAlign:'right',color:'#16a34a',fontSize:12}}>
+                          {r.type==='inflow'?<span>฿{fmt(r.amount)}{r.currency&&r.currency!=='THB'&&<span title={`${r.amount_orig} ${r.currency} × ${r.fx_rate}`} style={{marginLeft:4,fontSize:9,padding:'1px 4px',borderRadius:3,background:'#dbeafe',color:'#1d4ed8',verticalAlign:'middle'}}>{r.currency}</span>}</span>:'-'}
+                        </td>
+                        <td style={{textAlign:'right',color:'#dc2626',fontSize:12}}>
+                          {r.type==='outflow'?<span>฿{fmt(r.amount)}{r.currency&&r.currency!=='THB'&&<span title={`${r.amount_orig} ${r.currency} × ${r.fx_rate}`} style={{marginLeft:4,fontSize:9,padding:'1px 4px',borderRadius:3,background:'#fee2e2',color:'#dc2626',verticalAlign:'middle'}}>{r.currency}</span>}</span>:'-'}
+                        </td>
                         <td style={{fontSize:12,color:'#94a3b8'}}>{r.bank||'-'}</td>
                         <td style={{fontSize:12,color:'#64748b'}} colSpan={1}>{r.desc||'-'}</td>
-                        <td><button onClick={e=>{e.stopPropagation();del(r.id);}} style={{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:13}}>🗑</button></td>
+                        {isAdm&&<td><button onClick={e=>{e.stopPropagation();del(r.id);}} style={{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:13}}>🗑</button></td>}
                       </tr>
                     ))}
                   </React.Fragment>
@@ -2008,14 +2150,13 @@ function DailyCashFlow(){
                 <p style={{fontSize:12,color:'#64748b',marginTop:4}}>กรอกรายรับ/รายจ่ายที่คาดการณ์ไว้ล่วงหน้า ระบบคำนวณยอดคงเหลือรายวันอัตโนมัติ</p>
               </div>
               <div style={{display:'flex',gap:8}}>
-                <ImportBar onImport={importBudgetCF} onExport={exportBudgetCF} onClearAll={()=>{setCfBudgets([]);ls.set('cf_budgets',[]);}} count={cfBudgets.length} label="Budget CF" sampleType="cashflow"/>
+                <ImportBar onImport={importBudgetCF} onExport={exportBudgetCF} onClearAll={()=>{setCfBudgets([]);ls.set('cf_budgets',[]);}} count={cfBudgets.length} label="Budget CF" sampleType="cashflow" disabled={!isAdm}/>
               </div>
             </div>
             {budMsg&&<div style={{marginBottom:10,fontSize:13,fontWeight:600}}>{budMsg}</div>}
-            <div style={{display:'flex',gap:8,marginBottom:12}}>
+            {isAdm&&<><div style={{display:'flex',gap:8,marginBottom:12}}>
               {[{v:'in',label:'💰 รายรับ (ประมาณการ)',color:'#16a34a',bg:'#f0fdf4'},{v:'out',label:'💸 รายจ่าย (ประมาณการ)',color:'#dc2626',bg:'#fff1f2'}].map(t=>(
-                <button key={t.v} type="button" onClick={()=>setBudForm(f=>({...f,flow:t.v,category:t.v==='in'?REV_CATS[0]:EXP_CATS[0]}))}
-                  style={{padding:'10px 24px',borderRadius:8,border:'2px solid '+(budForm.flow===t.v?t.color:'#e5e7eb'),background:budForm.flow===t.v?t.bg:'#fff',color:budForm.flow===t.v?t.color:'#374151',fontWeight:700,fontSize:14,cursor:'pointer'}}>
+                <button key={t.v} type="button" onClick={()=>setBudForm(f=>({...f,flow:t.v,category:t.v==='in'?REV_CATS[0]:EXP_CATS[0]}))} style={{padding:'10px 24px',borderRadius:8,border:'2px solid '+(budForm.flow===t.v?t.color:'#e5e7eb'),background:budForm.flow===t.v?t.bg:'#fff',color:budForm.flow===t.v?t.color:'#374151',fontWeight:700,fontSize:14,cursor:'pointer'}}>
                   {t.label}
                 </button>
               ))}
@@ -2035,14 +2176,29 @@ function DailyCashFlow(){
               <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>จำนวนเงิน (บาท)</label><input type="number" placeholder="0" value={budForm.amount} onChange={e=>setBudForm(f=>({...f,amount:e.target.value}))} required/></div>
               <div><label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>รายละเอียด</label><input placeholder="รายละเอียด" value={budForm.desc} onChange={e=>setBudForm(f=>({...f,desc:e.target.value}))}/></div>
               <button type="submit" className="btn btn-primary">➕ เพิ่มรายการ</button>
-            </form>
+            </form></>}
           </div>
 
           {/* Sub-tab: Daily / Monthly */}
-          <div style={{display:'flex',gap:4,background:'#f5f3ff',padding:4,borderRadius:12,width:'fit-content',marginBottom:16}}>
-            {[['daily','📆 รายวัน'],['monthly','📅 สรุปรายเดือน']].map(([v,l])=>(
-              <button key={v} onClick={()=>setBudViewTab(v)} style={{padding:'7px 18px',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',border:'none',background:budViewTab===v?'#fff':'transparent',color:budViewTab===v?'#7c3aed':'#6b7280',boxShadow:budViewTab===v?'0 1px 3px rgba(0,0,0,.1)':'none'}}>{l}</button>
-            ))}
+          {/* Filter Bar */}
+          <div style={{display:'flex',gap:10,alignItems:'center',marginBottom:14,flexWrap:'wrap'}}>
+            <div style={{display:'flex',gap:4,background:'#f5f3ff',padding:4,borderRadius:12}}>
+              {[['daily','📆 รายวัน'],['monthly','📅 สรุปรายเดือน']].map(([v,l])=>(
+                <button key={v} onClick={()=>setBudViewTab(v)} style={{padding:'7px 18px',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',border:'none',background:budViewTab===v?'#fff':'transparent',color:budViewTab===v?'#7c3aed':'#6b7280',boxShadow:budViewTab===v?'0 1px 3px rgba(0,0,0,.1)':'none'}}>{l}</button>
+              ))}
+            </div>
+            <div style={{display:'flex',gap:8,alignItems:'center',background:'#fff',border:'1px solid #e5e7eb',borderRadius:10,padding:'6px 12px'}}>
+              <span style={{fontSize:12,color:'#64748b',fontWeight:600}}>📅 ดูข้อมูลปี-เดือน:</span>
+              <select value={budFilterYear} onChange={e=>{setBudFilterYear(e.target.value);setBudFilterMonth('');}} style={{fontSize:13,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db',width:90}}>
+                {Array.from({length:5},(_,i)=>(new Date().getFullYear()-2+i).toString()).map(y=><option key={y}>{y}</option>)}
+              </select>
+              <select value={budFilterMonth} onChange={e=>setBudFilterMonth(e.target.value)} style={{fontSize:13,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db',width:120}}>
+                <option value="">ทุกเดือน</option>
+                {MONTHS_TH.map((m,i)=><option key={i+1} value={String(i+1).padStart(2,'0')}>{m}</option>)}
+              </select>
+              {budFilterMonth&&<button onClick={()=>setBudFilterMonth('')} style={{fontSize:11,padding:'2px 8px',borderRadius:6,background:'#f1f5f9',border:'1px solid #cbd5e1',cursor:'pointer',color:'#64748b'}}>✕ ล้าง</button>}
+              <span style={{fontSize:12,color:'#94a3b8'}}>{cfBudgetFiltered.length} รายการ</span>
+            </div>
           </div>
 
           {cfBudgetMonths.length===0&&(
@@ -2128,7 +2284,7 @@ function DailyCashFlow(){
                               <td style={{textAlign:'right',color:'#dc2626',fontSize:12}}>{r.flow==='out'?'฿'+fmt(r.amount):'-'}</td>
                               <td style={{fontSize:12,color:'#64748b'}}>{r.desc||'-'}</td>
                               <td/>
-                              <td><button onClick={e=>{e.stopPropagation();delBudget(r.id);}} style={{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:13}}>🗑</button></td>
+                              {isAdm&&<td><button onClick={e=>{e.stopPropagation();delBudget(r.id);}} style={{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:13}}>🗑</button></td>}
                             </tr>
                           ))}
                         </React.Fragment>
@@ -2154,7 +2310,23 @@ function DailyCashFlow(){
           {/* ===== MONTHLY SUMMARY VIEW ===== */}
           {budViewTab==='monthly'&&cfBudgetMonths.length>0&&(
             <div className="card" style={{overflowX:'auto'}}>
-              <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>สรุป Budget Cashflow รายเดือน ปี {filterYear}</h3>
+              <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>
+                สรุป Budget Cashflow {budFilterMonth?MONTHS_TH[+budFilterMonth-1]+' ':' '}ปี {budFilterYear}
+              </h3>
+              {/* KPI summary */}
+              <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:10,marginBottom:16}}>
+                {[
+                  {label:'รายรับรวม (ประมาณการ)',val:cfBudgetMonths.reduce((s,m)=>s+m.inflow,0),color:'#16a34a',bg:'#f0fdf4',icon:'💰'},
+                  {label:'รายจ่ายรวม (ประมาณการ)',val:cfBudgetMonths.reduce((s,m)=>s+m.outflow,0),color:'#dc2626',bg:'#fff1f2',icon:'💸'},
+                  {label:'สุทธิ (รับ-จ่าย)',val:cfBudgetMonths.reduce((s,m)=>s+m.net,0),color:'#7c3aed',bg:'#faf5ff',icon:'⚖️'},
+                  {label:'คงเหลือสิ้นงวด',val:cfBudgetMonths[cfBudgetMonths.length-1]?.closeBal||0,color:'#0891b2',bg:'#f0f9ff',icon:'🏦'},
+                ].map(k=>(
+                  <div key={k.label} style={{background:k.bg,borderRadius:10,padding:'10px 14px',border:`1px solid ${k.color}33`}}>
+                    <div style={{fontSize:11,color:k.color,fontWeight:600,marginBottom:4}}>{k.icon} {k.label}</div>
+                    <div style={{fontSize:16,fontWeight:800,color:k.color}}>฿{fmt(k.val)}</div>
+                  </div>
+                ))}
+              </div>
               <table>
                 <thead>
                   <tr>
@@ -2185,7 +2357,7 @@ function DailyCashFlow(){
                 </tbody>
                 <tfoot>
                   <tr style={{background:'#f5f3ff',fontWeight:700}}>
-                    <td>รวมปี {filterYear}</td>
+                    <td>รวม{budFilterMonth?MONTHS_TH[+budFilterMonth-1]:'ปี '+budFilterYear}</td>
                     <td style={{textAlign:'right',color:'#3730a3'}}>-</td>
                     <td style={{textAlign:'right',color:'#16a34a'}}>฿{fmt(cfBudgetMonths.reduce((s,m)=>s+m.inflow,0))}</td>
                     <td style={{textAlign:'right',color:'#dc2626'}}>฿{fmt(cfBudgetMonths.reduce((s,m)=>s+m.outflow,0))}</td>
@@ -2658,7 +2830,7 @@ function Users(){
     <div style={{padding:24,maxWidth:1400,margin:'0 auto'}}>
       <div style={{marginBottom:20}}>
         <h1 style={{fontSize:22,fontWeight:800,color:'#2e1065',margin:0}}>👥 ผู้ใช้งานระบบ</h1>
-        <p style={{fontSize:13,color:'#64748b',marginTop:4}}>Admin/Finance เห็นข้อมูลทุกคน | Dept.Manager/Executive เห็นเฉพาะที่ตัวเองบันทึก</p>
+        <p style={{fontSize:13,color:'#64748b',marginTop:4}}>ทุก User เห็นข้อมูลทั้งหมด | เฉพาะ Admin เท่านั้นที่เพิ่ม/แก้ไข/ลบข้อมูลได้</p>
       </div>
 
       {msg&&<div style={{marginBottom:14,padding:'10px 16px',borderRadius:8,background:msg.startsWith('❌')?'#fff1f2':'#f0fdf4',color:msg.startsWith('❌')?'#dc2626':'#16a34a',fontWeight:600,fontSize:13}}>{msg}</div>}
@@ -2757,7 +2929,7 @@ function Users(){
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,fontSize:12,color:'#64748b',marginBottom:12}}>
               <div>📧 {u.email||'-'}</div>
               <div>🏢 {u.dept||'-'}</div>
-              <div style={{gridColumn:'span 2'}}>{canSeeAll(u)?'👁 เห็นข้อมูลทุกคน':'👤 เห็นเฉพาะตัวเอง'}</div>
+              <div style={{gridColumn:'span 2'}}>{isAdmin(u)?'🔑 Admin — แก้ไขข้อมูลได้':'👁 ดูข้อมูลได้ทั้งหมด'}</div>
             </div>
             <div style={{display:'flex',gap:8}}>
               <button onClick={()=>openEdit(u)} style={{flex:1,padding:'7px 0',borderRadius:8,background:'#e0e7ff',color:'#3730a3',border:'1px solid #a5b4fc',cursor:'pointer',fontSize:13,fontWeight:600}}>✏️ แก้ไข</button>
@@ -2790,6 +2962,7 @@ function Users(){
 /* ====== BANK BALANCE PAGE ====== */
 function BankBalance(){
   const curUser=React.useContext(UserCtx);
+  const isAdm=isAdmin(curUser);
   const curYear=new Date().getFullYear();
   const [filterYear,setFilterYear]=useState(curYear.toString());
   const [filterMonth,setFilterMonth]=useState(String(new Date().getMonth()+1));
@@ -2802,6 +2975,7 @@ function BankBalance(){
   const [openInput,setOpenInput]=useState('');
 
   function saveOpening(key,val){
+    if(!isAdm)return;
     const updated={...bankOpening,[key]:val};
     setBankOpening(updated);ls.set('bank_opening',updated);
     setEditOpenKey(null);
@@ -2892,6 +3066,7 @@ function BankBalance(){
         </div>
       </div>
 
+      <ReadOnlyBanner/>
       {/* Opening Balance Setting Panel */}
       <div className="card" style={{marginBottom:20}}>
         <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>📂 ยอดยกมาต้นเดือน {mLabel} — แยกตามธนาคาร</h3>
@@ -2918,8 +3093,8 @@ function BankBalance(){
                   ):(
                     <React.Fragment>
                       <span style={{fontSize:14,fontWeight:800,color:opening>=0?'#3730a3':'#dc2626',minWidth:100}}>฿{fmt(opening)}</span>
-                      <button onClick={()=>{setEditOpenKey(ok);setOpenInput(String(opening));}}
-                        style={{fontSize:11,padding:'3px 8px',borderRadius:6,background:'#e0e7ff',color:'#3730a3',border:'1px solid #a5b4fc',cursor:'pointer'}}>✏️ แก้ไข</button>
+                      {isAdm&&<button onClick={()=>{setEditOpenKey(ok);setOpenInput(String(opening));}}
+                        style={{fontSize:11,padding:'3px 8px',borderRadius:6,background:'#e0e7ff',color:'#3730a3',border:'1px solid #a5b4fc',cursor:'pointer'}}>✏️ แก้ไข</button>}
                     </React.Fragment>
                   )}
                 </div>
@@ -3113,6 +3288,10 @@ function Layout({user,onLogout}){
               onMouseOver={e=>e.currentTarget.style.background='rgba(139,92,246,.45)'} onMouseOut={e=>e.currentTarget.style.background='rgba(139,92,246,.25)'}>
               <span>📦</span><span>ส่งออกข้อมูลทั้งหมด</span>
             </button>}
+            {!collapsed&&<a href="/import_templates.xlsx" download style={{display:'flex',alignItems:'center',gap:8,background:'rgba(245,158,11,.2)',border:'1px solid rgba(245,158,11,.4)',color:'#fde68a',cursor:'pointer',fontSize:12,borderRadius:8,padding:'6px 10px',marginBottom:8,width:'100%',textDecoration:'none',boxSizing:'border-box'}}
+              onMouseOver={e=>e.currentTarget.style.background='rgba(245,158,11,.4)'} onMouseOut={e=>e.currentTarget.style.background='rgba(245,158,11,.2)'}>
+              <span>📥</span><span>ดาวน์โหลด Template Import</span>
+            </a>}
             <button onClick={onLogout} style={{display:'flex',alignItems:'center',gap:8,background:'none',border:'none',color:'#c4b5fd',cursor:'pointer',fontSize:13}}
               onMouseOver={e=>e.currentTarget.style.color='#fff'} onMouseOut={e=>e.currentTarget.style.color='#c4b5fd'}>
               <span>🚪</span>{!collapsed&&'ออกจากระบบ'}
