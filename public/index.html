@@ -151,9 +151,10 @@ const ROLE_COLOR={admin:'badge-red',finance_manager:'badge-purple',dept_manager:
 /* ====== USER CONTEXT & HELPERS ====== */
 const UserCtx=React.createContext(null);
 // Admin และ Finance Manager เห็นข้อมูลทุกคน; Dept Manager / Executive เห็นแค่ตัวเอง
-const canSeeAll=u=>u&&(u.role==='admin'||u.role==='finance_manager');
+// ทุก User ที่ login แล้วเห็นข้อมูลทั้งหมด (edit ล็อกที่ Admin เท่านั้น)
+const canSeeAll=u=>!!u;
 const isAdmin=u=>u?.role==='admin';
-const filterOwn=(recs,u)=>canSeeAll(u)?recs:recs.filter(r=>!r.created_by||r.created_by===u.username);
+const filterOwn=(recs,_u)=>recs; // ทุก user เห็นข้อมูลทั้งหมด (edit ล็อกที่ Admin)
 function ReadOnlyBanner(){
   const curUser=React.useContext(UserCtx);
   if(isAdmin(curUser))return null;
@@ -1293,17 +1294,7 @@ function ActualEntry(){
 
   useEffect(()=>{setForm(f=>({...f,cat:(tab==='revenue'?REV_CATS:EXP_CATS)[0]}));setSelected(new Set());},[tab]);
 
-  // persist: admin saves all, user saves only own records merged with others
-  function persist(nr){
-    if(canSeeAll(curUser)){
-      setRecords(nr);ls.set('actual_records',nr);
-    }else{
-      const all=ls.get('actual_records',[]);
-      const others=all.filter(r=>r.created_by&&r.created_by!==curUser.username);
-      ls.set('actual_records',[...others,...nr]);
-      setRecords(nr);
-    }
-  }
+  function persist(nr){setRecords(nr);ls.set('actual_records',nr);}
   function save(e){
     e.preventDefault();
     if(!isAdm){setMsg('⛔ เฉพาะ Admin เท่านั้นที่สามารถแก้ไขข้อมูลได้');setTimeout(()=>setMsg(''),3000);return;}
@@ -2735,7 +2726,7 @@ function Users(){
     <div style={{padding:24,maxWidth:1400,margin:'0 auto'}}>
       <div style={{marginBottom:20}}>
         <h1 style={{fontSize:22,fontWeight:800,color:'#2e1065',margin:0}}>👥 ผู้ใช้งานระบบ</h1>
-        <p style={{fontSize:13,color:'#64748b',marginTop:4}}>Admin/Finance เห็นข้อมูลทุกคน | Dept.Manager/Executive เห็นเฉพาะที่ตัวเองบันทึก</p>
+        <p style={{fontSize:13,color:'#64748b',marginTop:4}}>ทุก User เห็นข้อมูลทั้งหมด | เฉพาะ Admin เท่านั้นที่เพิ่ม/แก้ไข/ลบข้อมูลได้</p>
       </div>
 
       {msg&&<div style={{marginBottom:14,padding:'10px 16px',borderRadius:8,background:msg.startsWith('❌')?'#fff1f2':'#f0fdf4',color:msg.startsWith('❌')?'#dc2626':'#16a34a',fontWeight:600,fontSize:13}}>{msg}</div>}
@@ -2834,7 +2825,7 @@ function Users(){
             <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:6,fontSize:12,color:'#64748b',marginBottom:12}}>
               <div>📧 {u.email||'-'}</div>
               <div>🏢 {u.dept||'-'}</div>
-              <div style={{gridColumn:'span 2'}}>{canSeeAll(u)?'👁 เห็นข้อมูลทุกคน':'👤 เห็นเฉพาะตัวเอง'}</div>
+              <div style={{gridColumn:'span 2'}}>{isAdmin(u)?'🔑 Admin — แก้ไขข้อมูลได้':'👁 ดูข้อมูลได้ทั้งหมด'}</div>
             </div>
             <div style={{display:'flex',gap:8}}>
               <button onClick={()=>openEdit(u)} style={{flex:1,padding:'7px 0',borderRadius:8,background:'#e0e7ff',color:'#3730a3',border:'1px solid #a5b4fc',cursor:'pointer',fontSize:13,fontWeight:600}}>✏️ แก้ไข</button>
