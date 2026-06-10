@@ -1523,15 +1523,30 @@ function DailyCashFlow(){
     exportExcel([{name:'Budget CF',data:rows}],'budget_cf.xlsx');
   }
   function importBudgetCF(rows,mode){
+    function parseFlow(v){
+      const s=String(v||'').trim().toLowerCase();
+      if(s==='รับ'||s==='in'||s==='inflow'||s==='revenue')return 'in';
+      if(s==='จ่าย'||s==='out'||s==='outflow'||s==='expense')return 'out';
+      return 'in';
+    }
+    function parseDate(v){
+      if(!v)return today();
+      const s=String(v).trim();
+      if(/^\d{5}$/.test(s)){const d=new Date((+s-25569)*86400000);return d.toISOString().slice(0,10);}
+      const m1=s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+      if(m1)return `${m1[3]}-${m1[2].padStart(2,'0')}-${m1[1].padStart(2,'0')}`;
+      if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
+      return today();
+    }
     const parsed=rows.map((r,i)=>({
       id:Date.now()+i,
-      date:r['วันที่']||r.date||today(),
-      flow:(r['ประเภท']||r.flow||'in')==='รับ'?'in':'out',
+      date:parseDate(r['วันที่']||r.date),
+      flow:parseFlow(r['ประเภท']||r.flow),
       category:r['หมวด']||r.category||REV_CATS[0],
       bank:r['ธนาคาร']||r.bank||BANKS[0],
-      amount:+r['จำนวนเงิน']||+r.amount||0,
+      amount:+(String(r['จำนวนเงิน']||r.amount||0).replace(/,/g,''))||0,
       desc:r['รายละเอียด']||r.desc||'',
-    }));
+    })).filter(r=>r.amount>0);
     const nr=mode==='replace'?parsed:[...cfBudgets,...parsed];
     setCfBudgets(nr);ls.set('cf_budgets',nr);
     setBudMsg('✅ '+(mode==='replace'?'แทนที่':'เพิ่ม')+' '+parsed.length+' รายการ');
@@ -1666,20 +1681,42 @@ function DailyCashFlow(){
   }
 
   function doImportCF(rows,mode){
+    function parseType(v){
+      const s=String(v||'').trim().toLowerCase();
+      if(s==='รับ'||s==='inflow'||s==='in'||s==='revenue'||s==='รายรับ'||s==='receive')return 'inflow';
+      if(s==='จ่าย'||s==='outflow'||s==='out'||s==='expense'||s==='รายจ่าย'||s==='pay')return 'outflow';
+      return 'inflow'; // default
+    }
+    function parseDate(v){
+      if(!v)return today();
+      const s=String(v).trim();
+      // Excel serial number
+      if(/^\d{5}$/.test(s)){
+        const d=new Date((+s-25569)*86400000);
+        return d.toISOString().slice(0,10);
+      }
+      // dd/mm/yyyy or dd-mm-yyyy
+      const m1=s.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
+      if(m1)return `${m1[3]}-${m1[2].padStart(2,'0')}-${m1[1].padStart(2,'0')}`;
+      // yyyy-mm-dd already
+      if(/^\d{4}-\d{2}-\d{2}$/.test(s))return s;
+      return today();
+    }
     const parsed=rows.map((r,i)=>({
       id:Date.now()+i,
-      date:r['วันที่']||r.date||today(),
-      type:r['ประเภท']||r.type||'inflow',
+      date:parseDate(r['วันที่']||r.date),
+      type:parseType(r['ประเภท']||r.type||r.flow),
       category:r['หมวด']||r.category||DAILY_CATS.inflow[0],
       bank:r['ธนาคาร']||r.bank||BANKS[0],
-      amount:+r['จำนวนเงิน']||+r.amount||0,
+      amount:+(String(r['จำนวนเงิน']||r.amount||0).replace(/,/g,''))||0,
       desc:r['รายละเอียด']||r.desc||'',
       ref:r['อ้างอิง']||r.ref||'',
       source:'✏️Manual',
-    }));
+    })).filter(r=>r.amount>0); // กรองแถวว่างออก
+    if(parsed.length===0){setMsg('⚠️ ไม่พบข้อมูลที่ valid (ตรวจสอบ column: วันที่ ประเภท จำนวนเงิน)');return;}
     const nr=mode==='replace'?parsed:[...dailyPlan,...parsed];
     setDailyPlan(nr);ls.set('daily_cashflow',nr);
-    setMsg(`✅ ${mode==='replace'?'แทนที่':'เพิ่ม'} ${parsed.length} รายการ (รวม ${nr.length} รายการ)`);
+    setMsg('✅ '+(mode==='replace'?'แทนที่':'เพิ่ม')+' '+parsed.length+' รายการ (รวม '+nr.length+' รายการ)');
   }
 
   const BAL_COLOR=v=>v>=0?'#16a34a':'#dc2626';
