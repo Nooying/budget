@@ -1056,6 +1056,9 @@ function LoanPage(){
   const [filterSource,setFilterSource]=useState(''); // '' | 'actual' | 'budget'
   const [showForm,setShowForm]=useState(false);
   const [loanTab,setLoanTab]=useState('summary'); // summary | monthly | records
+  // Monthly summary filter
+  const [mFilterYear,setMFilterYear]=useState(new Date().getFullYear().toString());
+  const [mFilterMonth,setMFilterMonth]=useState(''); // '' = ทุกเดือน
 
   const TXN_TYPES=[
     {v:'draw',label:'เบิกกู้เงิน 💳',color:'#0891b2',bg:'#f0f9ff'},
@@ -1071,25 +1074,43 @@ function LoanPage(){
     const nr=[...records,newRec];
     setRecords(nr);ls.set('loan_records',nr);
 
-    // Auto-link to actual_records เฉพาะรายการจริง (ไม่ใช่ประมาณการ)
-    if(form.source!=='budget'){
-      const actRecs=ls.get('actual_records',[]);
-      const autoEntry={
-        id:newId+1,
-        source:'loan_auto',
-        type:form.txn_type==='draw'?'revenue':'expense',
-        cat:form.txn_type==='draw'?'รับเงินกู้':(form.txn_type==='repay'?'คืนเงินกู้':'ดอกเบี้ยเงินกู้'),
-        dept:'Finance',
-        date:form.date,
-        amount:+form.amount,
-        ref:form.ref,
-        desc:`${form.bank} — ${form.loan_type}${form.note?' ('+form.note+')':''}`,
-        vendor:form.bank,
+    const loanDesc=`[เงินกู้] ${form.bank} — ${form.loan_type}${form.note?' ('+form.note+')':''}`;
+    const loanCat=form.txn_type==='draw'?'รับเงินกู้':(form.txn_type==='repay'?'คืนเงินกู้':'ดอกเบี้ยเงินกู้');
+
+    if((form.source||'actual')==='actual'){
+      // ── actual → daily_cashflow (CF รายวัน) + actual_records ──
+      const cfEntry={
+        id:newId+1, source:'loan_auto', loan_id:newId,
+        date:form.date, type:form.txn_type==='draw'?'inflow':'outflow',
+        category:loanCat, amount:+form.amount, bank:form.bank,
+        desc:loanDesc, ref:form.ref,
+        currency:'THB', fxRate:1, amountOrig:'', created_by:curUser?.username,
       };
-      ls.set('actual_records',[...actRecs,autoEntry]);
+      const dailyRecs=ls.get('daily_cashflow',[]);
+      ls.set('daily_cashflow',[...dailyRecs,cfEntry]);
+
+      const actEntry={
+        id:newId+2, source:'loan_auto', loan_id:newId,
+        type:form.txn_type==='draw'?'revenue':'expense',
+        cat:loanCat, dept:'Finance',
+        date:form.date, amount:+form.amount, ref:form.ref,
+        desc:loanDesc, vendor:form.bank,
+      };
+      const actRecs=ls.get('actual_records',[]);
+      ls.set('actual_records',[...actRecs,actEntry]);
+    } else {
+      // ── budget → cf_budgets (Budget CF) ──
+      const budEntry={
+        id:newId+1, source:'loan_budget', loan_id:newId,
+        date:form.date, flow:form.txn_type==='draw'?'in':'out',
+        category:loanCat, amount:+form.amount, bank:form.bank,
+        desc:loanDesc, currency:'THB', fx_rate:1, amount_orig:'',
+      };
+      const cfBuds=ls.get('cf_budgets',[]);
+      ls.set('cf_budgets',[...cfBuds,budEntry]);
     }
 
-    setMsg('✅ บันทึกสำเร็จ — เชื่อมโยงไปยังบันทึกผลจริงและ Cash Flow อัตโนมัติ');
+    setMsg('✅ บันทึกสำเร็จ — เชื่อมโยงไปยัง CF อัตโนมัติ');
     setShowForm(false);
     setForm(f=>({...f,amount:'',ref:'',note:'',due_date:''}));
     setTimeout(()=>setMsg(''),5000);
@@ -1106,11 +1127,13 @@ function LoanPage(){
 
   function doImportLoan(rows,mode){
     if(!isAdm)return;
+    const baseId=Date.now();
     const parsed=rows.map((r,i)=>({
-      id:Date.now()+i,
+      id:baseId+i*3,
       bank:r['ธนาคาร']||r.bank||BANKS[0],
       loan_type:r['ประเภทวงเงิน']||r.loan_type||LOAN_TYPES[0],
       txn_type:r['ประเภทรายการ']||r.txn_type||'draw',
+      source:r['แหล่งข้อมูล']==='budget'||r.source==='budget'?'budget':'actual',
       date:r['วันที่']||r.date||today(),
       amount:+r['จำนวนเงิน']||+r.amount||0,
       interest_rate:+r['อัตราดอกเบี้ย%']||+r.interest_rate||0,
@@ -1118,19 +1141,54 @@ function LoanPage(){
       ref:r['เลขที่อ้างอิง']||r.ref||'',
       note:r['หมายเหตุ']||r.note||'',
     }));
-    // Auto-link to actual_records
-    const actRecs=ls.get('actual_records',[]);
-    const autoEntries=parsed.map((r,i)=>({
-      id:Date.now()+10000+i,source:'loan_auto',
-      type:r.txn_type==='draw'?'revenue':'expense',
-      cat:r.txn_type==='draw'?'รับเงินกู้':(r.txn_type==='repay'?'คืนเงินกู้':'ดอกเบี้ยเงินกู้'),
-      dept:'Finance',date:r.date,amount:r.amount,ref:r.ref,
-      desc:`${r.bank} — ${r.loan_type}`,vendor:r.bank,
-    }));
-    const baseAct=mode==='replace'?actRecs.filter(a=>a.source!=='loan_auto'):actRecs;
-    ls.set('actual_records',[...baseAct,...autoEntries]);
+
+    const actualParsed=parsed.filter(r=>r.source==='actual');
+    const budgetParsed=parsed.filter(r=>r.source==='budget');
+
+    // actual → daily_cashflow + actual_records
+    if(actualParsed.length>0){
+      const dailyRecs=ls.get('daily_cashflow',[]);
+      const cfEntries=actualParsed.map((r,i)=>({
+        id:r.id+1,source:'loan_auto',loan_id:r.id,
+        date:r.date,type:r.txn_type==='draw'?'inflow':'outflow',
+        category:r.txn_type==='draw'?'รับเงินกู้':(r.txn_type==='repay'?'คืนเงินกู้':'ดอกเบี้ยเงินกู้'),
+        amount:r.amount,bank:r.bank,
+        desc:`[เงินกู้] ${r.bank} — ${r.loan_type}`,ref:r.ref,
+        currency:'THB',fxRate:1,amountOrig:'',
+      }));
+      const baseDaily=mode==='replace'?dailyRecs.filter(a=>a.source!=='loan_auto'):dailyRecs;
+      ls.set('daily_cashflow',[...baseDaily,...cfEntries]);
+
+      const actRecs=ls.get('actual_records',[]);
+      const actEntries=actualParsed.map((r,i)=>({
+        id:r.id+2,source:'loan_auto',loan_id:r.id,
+        type:r.txn_type==='draw'?'revenue':'expense',
+        cat:r.txn_type==='draw'?'รับเงินกู้':(r.txn_type==='repay'?'คืนเงินกู้':'ดอกเบี้ยเงินกู้'),
+        dept:'Finance',date:r.date,amount:r.amount,ref:r.ref,
+        desc:`[เงินกู้] ${r.bank} — ${r.loan_type}`,vendor:r.bank,
+      }));
+      const baseAct=mode==='replace'?actRecs.filter(a=>a.source!=='loan_auto'):actRecs;
+      ls.set('actual_records',[...baseAct,...actEntries]);
+    }
+
+    // budget → cf_budgets
+    if(budgetParsed.length>0){
+      const cfBuds=ls.get('cf_budgets',[]);
+      const budEntries=budgetParsed.map((r,i)=>({
+        id:r.id+1,source:'loan_budget',loan_id:r.id,
+        date:r.date,flow:r.txn_type==='draw'?'in':'out',
+        category:r.txn_type==='draw'?'รับเงินกู้':(r.txn_type==='repay'?'คืนเงินกู้':'ดอกเบี้ยเงินกู้'),
+        amount:r.amount,bank:r.bank,
+        desc:`[เงินกู้] ${r.bank} — ${r.loan_type}`,
+        currency:'THB',fx_rate:1,amount_orig:'',
+      }));
+      const baseBud=mode==='replace'?cfBuds.filter(a=>a.source!=='loan_budget'):cfBuds;
+      ls.set('cf_budgets',[...baseBud,...budEntries]);
+    }
+
     const nr=mode==='replace'?parsed:[...records,...parsed];
-    setRecords(nr);ls.set('loan_records',nr);setMsg(`✅ ${mode==='replace'?'แทนที่':'เพิ่ม'} ${rows.length} รายการ (รวม ${nr.length} รายการ)`);
+    setRecords(nr);ls.set('loan_records',nr);
+    setMsg(`✅ ${mode==='replace'?'แทนที่':'เพิ่ม'} ${rows.length} รายการ (รวม ${nr.length} รายการ)`);
   }
 
   const filtered=records.filter(r=>
@@ -1338,14 +1396,25 @@ function LoanPage(){
         <div className="card" style={{overflowX:'auto',marginBottom:16}}>
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:12}}>
             <h3 style={{fontWeight:700,fontSize:15,color:'#4c1d95',margin:0}}>📅 สรุปเงินกู้รายเดือน — จริง vs ประมาณการ</h3>
-            <div style={{display:'flex',gap:8}}>
-              <button onClick={()=>navTo('cashflow',{cfTab:'budget'})} style={{fontSize:12,padding:'6px 14px',borderRadius:8,background:'#e0f2fe',color:'#0369a1',border:'1px solid #bae6fd',cursor:'pointer',fontWeight:600}}>📊 ดูใน Budget CF →</button>
-              <button onClick={()=>navTo('cashflow',{cfTab:'daily'})} style={{fontSize:12,padding:'6px 14px',borderRadius:8,background:'#f0fdf4',color:'#166534',border:'1px solid #bbf7d0',cursor:'pointer',fontWeight:600}}>📆 ดูใน CF รายวัน →</button>
+            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+              <span style={{fontSize:12,color:'#64748b',fontWeight:600}}>📆 กรองข้อมูล:</span>
+              <select value={mFilterYear} onChange={e=>{setMFilterYear(e.target.value);setMFilterMonth('');}}
+                style={{fontSize:13,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db',width:90}}>
+                {[...new Set(monthlySummary.map(m=>m.month.slice(0,4)))].sort().concat(new Date().getFullYear().toString()).filter((v,i,a)=>a.indexOf(v)===i).sort().map(y=><option key={y}>{y}</option>)}
+              </select>
+              <select value={mFilterMonth} onChange={e=>setMFilterMonth(e.target.value)}
+                style={{fontSize:13,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db',width:120}}>
+                <option value="">ทุกเดือน</option>
+                {MONTHS_TH.map((m,i)=><option key={i+1} value={i+1}>{m}</option>)}
+              </select>
+              {mFilterMonth&&<button onClick={()=>setMFilterMonth('')} style={{fontSize:11,padding:'4px 8px',borderRadius:6,background:'#f1f5f9',border:'1px solid #e2e8f0',cursor:'pointer'}}>✕ ล้าง</button>}
             </div>
           </div>
-          {monthlySummary.length===0?(
-            <div style={{textAlign:'center',padding:32,color:'#94a3b8'}}>ยังไม่มีข้อมูล</div>
-          ):(
+          {(()=>{
+            const budTotal=(type)=>budgetRecs.filter(r=>r.txn_type===type&&r.date?.startsWith(mFilterYear)&&(!mFilterMonth||r.date?.slice(5,7)===String(mFilterMonth).padStart(2,'0'))).reduce((s,r)=>s+r.amount,0);
+            const visMonths=monthlySummary.filter(m=>m.month.startsWith(mFilterYear)&&(!mFilterMonth||m.month.slice(5,7)===String(mFilterMonth).padStart(2,'0')));
+            if(visMonths.length===0)return<div style={{textAlign:'center',padding:32,color:'#94a3b8'}}>ไม่มีข้อมูลสำหรับช่วงเวลาที่เลือก</div>;
+            return(
             <table>
               <thead>
                 <tr>
@@ -1357,66 +1426,47 @@ function LoanPage(){
                   <th rowSpan={2} style={{textAlign:'right',background:'#fef9c3',color:'#854d0e',fontWeight:800}}>ยอดสิ้นเดือน</th>
                 </tr>
                 <tr>
-                  <th style={{textAlign:'right',background:'#e0f2fe',color:'#0369a1',fontSize:11}}>จริง ↗</th>
-                  <th style={{textAlign:'right',background:'#f0f9ff',color:'#0891b2',fontSize:11}}>ประมาณการ ↗</th>
-                  <th style={{textAlign:'right',background:'#dcfce7',color:'#166534',fontSize:11}}>จริง ↗</th>
-                  <th style={{textAlign:'right',background:'#f0fdf4',color:'#16a34a',fontSize:11}}>ประมาณการ ↗</th>
-                  <th style={{textAlign:'right',background:'#fee2e2',color:'#991b1b',fontSize:11}}>จริง ↗</th>
-                  <th style={{textAlign:'right',background:'#fff1f2',color:'#dc2626',fontSize:11}}>ประมาณการ ↗</th>
+                  <th style={{textAlign:'right',background:'#e0f2fe',color:'#0369a1',fontSize:11}}>จริง</th>
+                  <th style={{textAlign:'right',background:'#f0f9ff',color:'#0891b2',fontSize:11}}>ประมาณการ</th>
+                  <th style={{textAlign:'right',background:'#dcfce7',color:'#166534',fontSize:11}}>จริง</th>
+                  <th style={{textAlign:'right',background:'#f0fdf4',color:'#16a34a',fontSize:11}}>ประมาณการ</th>
+                  <th style={{textAlign:'right',background:'#fee2e2',color:'#991b1b',fontSize:11}}>จริง</th>
+                  <th style={{textAlign:'right',background:'#fff1f2',color:'#dc2626',fontSize:11}}>ประมาณการ</th>
                 </tr>
               </thead>
               <tbody>
-                {monthlySummary.map(m=>{
+                {visMonths.map(m=>{
                   const mIdx=parseInt(m.month.slice(5),10)-1;
                   const mLabel=MONTHS_TH[mIdx]+' '+(parseInt(m.month.slice(0,4))+543);
-                  return(
-                    <tr key={m.month} style={{background:m.closeBal<0?'#fff1f2':''}}>
-                      <td style={{fontWeight:700}}>{mLabel}</td>
-                      <td style={{textAlign:'right',color:'#3730a3',fontWeight:600,background:'#f0f0ff'}}>฿{fmt(m.openBal)}</td>
-                      <td style={{textAlign:'right',color:'#0369a1',fontWeight:600,background:'#e0f2fe'}}>
-                        {m.drawA?<span style={{cursor:'pointer'}} onClick={()=>navTo('cashflow',{cfTab:'daily'})} title="คลิกดูใน CF รายวัน">฿{fmt(m.drawA)}</span>:'-'}
-                      </td>
-                      <td style={{textAlign:'right',color:'#0891b2',background:'#f0f9ff'}}>
-                        {m.drawB?<span style={{cursor:'pointer'}} onClick={()=>navTo('cashflow',{cfTab:'budget'})} title="คลิกดูใน Budget CF">฿{fmt(m.drawB)}</span>:'-'}
-                      </td>
-                      <td style={{textAlign:'right',color:'#166534',fontWeight:600,background:'#dcfce7'}}>
-                        {m.repayA?<span style={{cursor:'pointer'}} onClick={()=>navTo('cashflow',{cfTab:'daily'})} title="คลิกดูใน CF รายวัน">฿{fmt(m.repayA)}</span>:'-'}
-                      </td>
-                      <td style={{textAlign:'right',color:'#16a34a',background:'#f0fdf4'}}>
-                        {m.repayB?<span style={{cursor:'pointer'}} onClick={()=>navTo('cashflow',{cfTab:'budget'})} title="คลิกดูใน Budget CF">฿{fmt(m.repayB)}</span>:'-'}
-                      </td>
-                      <td style={{textAlign:'right',color:'#991b1b',fontWeight:600,background:'#fee2e2'}}>
-                        {m.intA?<span style={{cursor:'pointer'}} onClick={()=>navTo('cashflow',{cfTab:'daily'})} title="คลิกดูใน CF รายวัน">฿{fmt(m.intA)}</span>:'-'}
-                      </td>
-                      <td style={{textAlign:'right',color:'#dc2626',background:'#fff1f2'}}>
-                        {m.intB?<span style={{cursor:'pointer'}} onClick={()=>navTo('cashflow',{cfTab:'budget'})} title="คลิกดูใน Budget CF">฿{fmt(m.intB)}</span>:'-'}
-                      </td>
-                      <td style={{textAlign:'right',fontWeight:800,fontSize:14,background:m.closeBal>=0?'#f0fdf4':'#fff1f2',color:m.closeBal>=0?'#16a34a':'#dc2626'}}>
-                        ฿{fmt(m.closeBal)}
-                      </td>
-                    </tr>
-                  );
+                  return(<tr key={m.month} style={{background:m.closeBal<0?'#fff1f2':''}}>
+                    <td style={{fontWeight:700}}>{mLabel}</td>
+                    <td style={{textAlign:'right',color:'#3730a3',fontWeight:600,background:'#f0f0ff'}}>฿{fmt(m.openBal)}</td>
+                    <td style={{textAlign:'right',color:'#0369a1',fontWeight:600,background:'#e0f2fe'}}>{m.drawA?'฿'+fmt(m.drawA):'-'}</td>
+                    <td style={{textAlign:'right',color:'#0891b2',background:'#f0f9ff'}}>{m.drawB?'฿'+fmt(m.drawB):'-'}</td>
+                    <td style={{textAlign:'right',color:'#166534',fontWeight:600,background:'#dcfce7'}}>{m.repayA?'฿'+fmt(m.repayA):'-'}</td>
+                    <td style={{textAlign:'right',color:'#16a34a',background:'#f0fdf4'}}>{m.repayB?'฿'+fmt(m.repayB):'-'}</td>
+                    <td style={{textAlign:'right',color:'#991b1b',fontWeight:600,background:'#fee2e2'}}>{m.intA?'฿'+fmt(m.intA):'-'}</td>
+                    <td style={{textAlign:'right',color:'#dc2626',background:'#fff1f2'}}>{m.intB?'฿'+fmt(m.intB):'-'}</td>
+                    <td style={{textAlign:'right',fontWeight:800,fontSize:14,background:m.closeBal>=0?'#f0fdf4':'#fff1f2',color:m.closeBal>=0?'#16a34a':'#dc2626'}}>฿{fmt(m.closeBal)}</td>
+                  </tr>);
                 })}
               </tbody>
               <tfoot>
                 <tr style={{background:'#f5f3ff',fontWeight:700}}>
                   <td>รวมทั้งหมด</td>
                   <td style={{textAlign:'right',color:'#3730a3',background:'#f0f0ff'}}>-</td>
-                  <td style={{textAlign:'right',color:'#0369a1',background:'#e0f2fe'}}>฿{fmt(totalDraw)}</td>
-                  <td style={{textAlign:'right',color:'#0891b2',background:'#f0f9ff'}}>฿{fmt(budgetRecs.filter(r=>r.txn_type==='draw').reduce((s,r)=>s+r.amount,0))}</td>
-                  <td style={{textAlign:'right',color:'#166534',background:'#dcfce7'}}>฿{fmt(totalRepay)}</td>
-                  <td style={{textAlign:'right',color:'#16a34a',background:'#f0fdf4'}}>฿{fmt(budgetRecs.filter(r=>r.txn_type==='repay').reduce((s,r)=>s+r.amount,0))}</td>
-                  <td style={{textAlign:'right',color:'#991b1b',background:'#fee2e2'}}>฿{fmt(totalInterest)}</td>
-                  <td style={{textAlign:'right',color:'#dc2626',background:'#fff1f2'}}>฿{fmt(budgetRecs.filter(r=>r.txn_type==='interest').reduce((s,r)=>s+r.amount,0))}</td>
-                  <td style={{textAlign:'right',color:'#7c3aed',fontWeight:800}}>฿{fmt(totalBalance)}</td>
+                  <td style={{textAlign:'right',color:'#0369a1',background:'#e0f2fe'}}>฿{fmt(visMonths.reduce((s,m)=>s+m.drawA,0))}</td>
+                  <td style={{textAlign:'right',color:'#0891b2',background:'#f0f9ff'}}>฿{fmt(budTotal('draw'))}</td>
+                  <td style={{textAlign:'right',color:'#166534',background:'#dcfce7'}}>฿{fmt(visMonths.reduce((s,m)=>s+m.repayA,0))}</td>
+                  <td style={{textAlign:'right',color:'#16a34a',background:'#f0fdf4'}}>฿{fmt(budTotal('repay'))}</td>
+                  <td style={{textAlign:'right',color:'#991b1b',background:'#fee2e2'}}>฿{fmt(visMonths.reduce((s,m)=>s+m.intA,0))}</td>
+                  <td style={{textAlign:'right',color:'#dc2626',background:'#fff1f2'}}>฿{fmt(budTotal('interest'))}</td>
+                  <td style={{textAlign:'right',color:'#7c3aed',fontWeight:800}}>฿{fmt(visMonths.length>0?visMonths[visMonths.length-1].closeBal:0)}</td>
                 </tr>
               </tfoot>
             </table>
-          )}
-          <div style={{marginTop:12,display:'flex',gap:16,flexWrap:'wrap',fontSize:12,color:'#64748b'}}>
-            <span>💡 คลิกตัวเลขคอลัมน์ <strong>จริง</strong> → ไปหน้า CF รายวัน</span>
-            <span>💡 คลิกตัวเลขคอลัมน์ <strong>ประมาณการ</strong> → ไปหน้า Budget CF</span>
-          </div>
+            );
+          })()}
         </div>
       )}
 
@@ -1438,8 +1488,6 @@ function LoanPage(){
               <option value="actual">✅ จริงเท่านั้น</option>
               <option value="budget">📋 ประมาณการเท่านั้น</option>
             </select>
-            <button onClick={()=>navTo('cashflow',{cfTab:'budget'})} style={{fontSize:12,padding:'6px 12px',borderRadius:8,background:'#e0f2fe',color:'#0369a1',border:'1px solid #bae6fd',cursor:'pointer',fontWeight:600}}>📊 Budget CF →</button>
-            <button onClick={()=>navTo('cashflow',{cfTab:'daily'})} style={{fontSize:12,padding:'6px 12px',borderRadius:8,background:'#f0fdf4',color:'#166534',border:'1px solid #bbf7d0',cursor:'pointer',fontWeight:600}}>📆 CF รายวัน →</button>
           </div>
           <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>รายการทั้งหมด ({filtered.length})</h3>
           {msg&&<div style={{marginBottom:10,fontSize:13}}>{msg}</div>}
@@ -1461,8 +1509,8 @@ function LoanPage(){
                   <td><span className="badge" style={{background:t.bg,color:t.color}}>{t.label}</span></td>
                   <td>
                     {isBud
-                      ?<span style={{fontSize:11,padding:'2px 8px',borderRadius:4,background:'#e0f2fe',color:'#0369a1',cursor:'pointer',fontWeight:600}} onClick={()=>navTo('cashflow',{cfTab:'budget'})}>📋 ประมาณการ ↗</span>
-                      :<span style={{fontSize:11,padding:'2px 8px',borderRadius:4,background:'#dcfce7',color:'#166534',cursor:'pointer',fontWeight:600}} onClick={()=>navTo('cashflow',{cfTab:'daily'})}>✅ จริง ↗</span>
+                      ?<span style={{fontSize:11,padding:'2px 8px',borderRadius:4,background:'#e0f2fe',color:'#0369a1',fontWeight:600}}>📋 ประมาณการ</span>
+                      :<span style={{fontSize:11,padding:'2px 8px',borderRadius:4,background:'#dcfce7',color:'#166534',fontWeight:600}}>✅ จริง</span>
                     }
                   </td>
                   <td style={{textAlign:'right',fontWeight:700,color:t.color}}>฿{fmt(r.amount)}</td>
