@@ -1259,6 +1259,9 @@ function LoanPage(){
 
   const todayStr=new Date().toLocaleDateString('th-TH',{year:'numeric',month:'long',day:'numeric'});
 
+  const budTotal=(type)=>budgetRecs.filter(r=>r.txn_type===type&&r.date?.startsWith(mFilterYear)&&(!mFilterMonth||r.date?.slice(5,7)===String(mFilterMonth).padStart(2,'0'))).reduce((s,r)=>s+r.amount,0);
+  const visMonths=monthlySummary.filter(m=>m.month.startsWith(mFilterYear)&&(!mFilterMonth||m.month.slice(5,7)===String(mFilterMonth).padStart(2,'0')));
+
   return(
     <div style={{padding:24,maxWidth:1500,margin:'0 auto'}}>
       {/* Header */}
@@ -1410,11 +1413,9 @@ function LoanPage(){
               {mFilterMonth&&<button onClick={()=>setMFilterMonth('')} style={{fontSize:11,padding:'4px 8px',borderRadius:6,background:'#f1f5f9',border:'1px solid #e2e8f0',cursor:'pointer'}}>✕ ล้าง</button>}
             </div>
           </div>
-          {(()=>{
-            const budTotal=(type)=>budgetRecs.filter(r=>r.txn_type===type&&r.date?.startsWith(mFilterYear)&&(!mFilterMonth||r.date?.slice(5,7)===String(mFilterMonth).padStart(2,'0'))).reduce((s,r)=>s+r.amount,0);
-            const visMonths=monthlySummary.filter(m=>m.month.startsWith(mFilterYear)&&(!mFilterMonth||m.month.slice(5,7)===String(mFilterMonth).padStart(2,'0')));
-            if(visMonths.length===0)return<div style={{textAlign:'center',padding:32,color:'#94a3b8'}}>ไม่มีข้อมูลสำหรับช่วงเวลาที่เลือก</div>;
-            return(
+          {visMonths.length===0?(
+            <div style={{textAlign:'center',padding:32,color:'#94a3b8'}}>ไม่มีข้อมูลสำหรับช่วงเวลาที่เลือก</div>
+          ):(
             <table>
               <thead>
                 <tr>
@@ -1465,8 +1466,7 @@ function LoanPage(){
                 </tr>
               </tfoot>
             </table>
-            );
-          })()}
+          )}
         </div>
       )}
 
