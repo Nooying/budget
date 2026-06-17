@@ -165,6 +165,7 @@ const ROLE_COLOR={admin:'badge-red',finance_manager:'badge-purple',dept_manager:
 
 /* ====== USER CONTEXT & HELPERS ====== */
 const UserCtx=React.createContext(null);
+const NavCtx=React.createContext({navTo:()=>{}});
 // Admin และ Finance Manager เห็นข้อมูลทุกคน; Dept Manager / Executive เห็นแค่ตัวเอง
 // ทุก User ที่ login แล้วเห็นข้อมูลทั้งหมด (edit ล็อกที่ Admin เท่านั้น)
 const canSeeAll=u=>!!u;
@@ -1046,11 +1047,16 @@ function LoanPage(){
 
   const curUser=React.useContext(UserCtx);
   const isAdm=isAdmin(curUser);
-  const [form,setForm]=useState({bank:BANKS[0],loan_type:LOAN_TYPES[0],txn_type:'draw',date:today(),amount:'',interest_rate:'',due_date:'',ref:'',note:''});
+  const {navTo}=React.useContext(NavCtx);
+  const [form,setForm]=useState({bank:BANKS[0],loan_type:LOAN_TYPES[0],txn_type:'draw',source:'actual',date:today(),amount:'',interest_rate:'',due_date:'',ref:'',note:''});
   const [msg,setMsg]=useState('');
   const [filterBank,setFilterBank]=useState('');
   const [filterType,setFilterType]=useState('');
+  const [filterSource,setFilterSource]=useState('');
   const [showForm,setShowForm]=useState(false);
+  const [loanTab,setLoanTab]=useState('monthly');
+  const [mFilterYear,setMFilterYear]=useState(new Date().getFullYear().toString());
+  const [mFilterMonth,setMFilterMonth]=useState('');
 
   const TXN_TYPES=[
     {v:'draw',label:'เบิกกู้เงิน 💳',color:'#0891b2',bg:'#f0f9ff'},
@@ -1062,27 +1068,29 @@ function LoanPage(){
     e.preventDefault();
     if(!isAdm){setMsg('⛔ เฉพาะ Admin เท่านั้นที่สามารถแก้ไขข้อมูลได้');return;}
     const newId=Date.now();
-    const newRec={id:newId,...form,amount:+form.amount,interest_rate:+form.interest_rate||0};
+    const src=form.source||'actual';
+    const newRec={id:newId,...form,amount:+form.amount,interest_rate:+form.interest_rate||0,source:src};
     const nr=[...records,newRec];
     setRecords(nr);ls.set('loan_records',nr);
-
-    // Auto-link to actual_records (บันทึกผลจริง)
-    const actRecs=ls.get('actual_records',[]);
-    const autoEntry={
-      id:newId+1,
-      source:'loan_auto',
-      type:form.txn_type==='draw'?'revenue':'expense',
-      cat:form.txn_type==='draw'?'รับเงินกู้':(form.txn_type==='repay'?'คืนเงินกู้':'ดอกเบี้ยเงินกู้'),
-      dept:'Finance',
-      date:form.date,
-      amount:+form.amount,
-      ref:form.ref,
-      desc:`${form.bank} — ${form.loan_type}${form.note?' ('+form.note+')':''}`,
-      vendor:form.bank,
-    };
-    ls.set('actual_records',[...actRecs,autoEntry]);
-
-    setMsg('✅ บันทึกสำเร็จ — เชื่อมโยงไปยังบันทึกผลจริงและ Cash Flow อัตโนมัติ');
+    const loanDesc=`[เงินกู้] ${form.bank} — ${form.loan_type}${form.note?' ('+form.note+')':''}`;
+    const loanCat=form.txn_type==='draw'?'รับเงินกู้':(form.txn_type==='repay'?'คืนเงินกู้':'ดอกเบี้ยเงินกู้');
+    if(src==='actual'){
+      const cfEntry={id:newId+1,source:'loan_auto',loan_id:newId,date:form.date,
+        type:form.txn_type==='draw'?'inflow':'outflow',category:loanCat,
+        amount:+form.amount,bank:form.bank,desc:loanDesc,ref:form.ref,
+        currency:'THB',fxRate:1,amountOrig:'',created_by:curUser?.username};
+      ls.set('daily_cashflow',[...ls.get('daily_cashflow',[]),cfEntry]);
+      const actEntry={id:newId+2,source:'loan_auto',loan_id:newId,
+        type:form.txn_type==='draw'?'revenue':'expense',cat:loanCat,dept:'Finance',
+        date:form.date,amount:+form.amount,ref:form.ref,desc:loanDesc,vendor:form.bank};
+      ls.set('actual_records',[...ls.get('actual_records',[]),actEntry]);
+    } else {
+      const budEntry={id:newId+1,source:'loan_budget',loan_id:newId,date:form.date,
+        flow:form.txn_type==='draw'?'in':'out',category:loanCat,amount:+form.amount,
+        bank:form.bank,desc:loanDesc,currency:'THB',fx_rate:1,amount_orig:''};
+      ls.set('cf_budgets',[...ls.get('cf_budgets',[]),budEntry]);
+    }
+    setMsg('✅ บันทึกสำเร็จ');
     setShowForm(false);
     setForm(f=>({...f,amount:'',ref:'',note:'',due_date:''}));
     setTimeout(()=>setMsg(''),5000);
@@ -1092,18 +1100,20 @@ function LoanPage(){
 
   function doExport(){
     exportExcel([{name:'Loan Records',data:[
-      ['ธนาคาร','ประเภทวงเงิน','ประเภทรายการ','วันที่','จำนวนเงิน','อัตราดอกเบี้ย%','วันครบกำหนด','เลขที่อ้างอิง','หมายเหตุ'],
-      ...records.map(r=>[r.bank,r.loan_type,r.txn_type,r.date,r.amount,r.interest_rate,r.due_date,r.ref,r.note])
+      ['ธนาคาร','ประเภทวงเงิน','ประเภทรายการ','แหล่งข้อมูล','วันที่','จำนวนเงิน','อัตราดอกเบี้ย%','วันครบกำหนด','เลขที่อ้างอิง','หมายเหตุ'],
+      ...records.map(r=>[r.bank,r.loan_type,r.txn_type,r.source||'actual',r.date,r.amount,r.interest_rate,r.due_date,r.ref,r.note])
     ]}],'loan_records.xlsx');
   }
 
   function doImportLoan(rows,mode){
     if(!isAdm)return;
+    const baseId=Date.now();
     const parsed=rows.map((r,i)=>({
-      id:Date.now()+i,
+      id:baseId+i*3,
       bank:r['ธนาคาร']||r.bank||BANKS[0],
       loan_type:r['ประเภทวงเงิน']||r.loan_type||LOAN_TYPES[0],
       txn_type:r['ประเภทรายการ']||r.txn_type||'draw',
+      source:r['แหล่งข้อมูล']==='budget'||r.source==='budget'?'budget':'actual',
       date:r['วันที่']||r.date||today(),
       amount:+r['จำนวนเงิน']||+r.amount||0,
       interest_rate:+r['อัตราดอกเบี้ย%']||+r.interest_rate||0,
@@ -1111,48 +1121,68 @@ function LoanPage(){
       ref:r['เลขที่อ้างอิง']||r.ref||'',
       note:r['หมายเหตุ']||r.note||'',
     }));
-    // Auto-link to actual_records
-    const actRecs=ls.get('actual_records',[]);
-    const autoEntries=parsed.map((r,i)=>({
-      id:Date.now()+10000+i,source:'loan_auto',
-      type:r.txn_type==='draw'?'revenue':'expense',
-      cat:r.txn_type==='draw'?'รับเงินกู้':(r.txn_type==='repay'?'คืนเงินกู้':'ดอกเบี้ยเงินกู้'),
-      dept:'Finance',date:r.date,amount:r.amount,ref:r.ref,
-      desc:`${r.bank} — ${r.loan_type}`,vendor:r.bank,
-    }));
-    const baseAct=mode==='replace'?actRecs.filter(a=>a.source!=='loan_auto'):actRecs;
-    ls.set('actual_records',[...baseAct,...autoEntries]);
+    const actualP=parsed.filter(r=>r.source==='actual');
+    const budgetP=parsed.filter(r=>r.source==='budget');
+    if(actualP.length>0){
+      const daily=ls.get('daily_cashflow',[]);
+      const cfE=actualP.map(r=>({id:r.id+1,source:'loan_auto',loan_id:r.id,date:r.date,
+        type:r.txn_type==='draw'?'inflow':'outflow',
+        category:r.txn_type==='draw'?'รับเงินกู้':(r.txn_type==='repay'?'คืนเงินกู้':'ดอกเบี้ยเงินกู้'),
+        amount:r.amount,bank:r.bank,desc:`[เงินกู้] ${r.bank} — ${r.loan_type}`,ref:r.ref,currency:'THB',fxRate:1,amountOrig:''}));
+      const baseD=mode==='replace'?daily.filter(a=>a.source!=='loan_auto'):daily;
+      ls.set('daily_cashflow',[...baseD,...cfE]);
+      const acts=ls.get('actual_records',[]);
+      const actE=actualP.map(r=>({id:r.id+2,source:'loan_auto',loan_id:r.id,
+        type:r.txn_type==='draw'?'revenue':'expense',
+        cat:r.txn_type==='draw'?'รับเงินกู้':(r.txn_type==='repay'?'คืนเงินกู้':'ดอกเบี้ยเงินกู้'),
+        dept:'Finance',date:r.date,amount:r.amount,ref:r.ref,desc:`[เงินกู้] ${r.bank} — ${r.loan_type}`,vendor:r.bank}));
+      const baseA=mode==='replace'?acts.filter(a=>a.source!=='loan_auto'):acts;
+      ls.set('actual_records',[...baseA,...actE]);
+    }
+    if(budgetP.length>0){
+      const buds=ls.get('cf_budgets',[]);
+      const budE=budgetP.map(r=>({id:r.id+1,source:'loan_budget',loan_id:r.id,date:r.date,
+        flow:r.txn_type==='draw'?'in':'out',
+        category:r.txn_type==='draw'?'รับเงินกู้':(r.txn_type==='repay'?'คืนเงินกู้':'ดอกเบี้ยเงินกู้'),
+        amount:r.amount,bank:r.bank,desc:`[เงินกู้] ${r.bank} — ${r.loan_type}`,currency:'THB',fx_rate:1,amount_orig:''}));
+      const baseB=mode==='replace'?buds.filter(a=>a.source!=='loan_budget'):buds;
+      ls.set('cf_budgets',[...baseB,...budE]);
+    }
     const nr=mode==='replace'?parsed:[...records,...parsed];
-    setRecords(nr);ls.set('loan_records',nr);setMsg(`✅ ${mode==='replace'?'แทนที่':'เพิ่ม'} ${rows.length} รายการ (รวม ${nr.length} รายการ)`);
+    setRecords(nr);ls.set('loan_records',nr);
+    setMsg(`✅ ${mode==='replace'?'แทนที่':'เพิ่ม'} ${rows.length} รายการ`);
   }
 
-  const filtered=records.filter(r=>(!filterBank||r.bank===filterBank)&&(!filterType||r.txn_type===filterType));
+  const actualRecs=records.filter(r=>(r.source||'actual')==='actual');
+  const budgetRecs=records.filter(r=>r.source==='budget');
+  const filtered=records.filter(r=>
+    (!filterBank||r.bank===filterBank)&&
+    (!filterType||r.txn_type===filterType)&&
+    (!filterSource||r.source===filterSource||(filterSource==='actual'&&!r.source))
+  );
 
-  // Summary by bank
+  // Summary by bank (actual only)
   const bankSummary={};
-  records.forEach(r=>{
+  actualRecs.forEach(r=>{
     if(!bankSummary[r.bank])bankSummary[r.bank]={bank:r.bank,draw:0,repay:0,interest:0};
     if(r.txn_type==='draw')bankSummary[r.bank].draw+=+r.amount;
     else if(r.txn_type==='repay')bankSummary[r.bank].repay+=+r.amount;
     else if(r.txn_type==='interest')bankSummary[r.bank].interest+=+r.amount;
   });
 
-  // Summary by loan_type (P/N vs Loan etc.)
+  // Summary by loan_type
   const typeSummary={};
-  records.forEach(r=>{
+  actualRecs.forEach(r=>{
     const lt=r.loan_type||'ไม่ระบุ';
     if(!typeSummary[lt])typeSummary[lt]={lt,draw:0,repay:0,interest:0};
     if(r.txn_type==='draw')typeSummary[lt].draw+=+r.amount;
     else if(r.txn_type==='repay')typeSummary[lt].repay+=+r.amount;
     else if(r.txn_type==='interest')typeSummary[lt].interest+=+r.amount;
   });
-
-  // Summary by loan_type x bank (cross table)
   const crossKey=(lt,bk)=>lt+'|||'+bk;
   const crossSummary={};
-  records.forEach(r=>{
-    const lt=r.loan_type||'ไม่ระบุ';
-    const k=crossKey(lt,r.bank);
+  actualRecs.forEach(r=>{
+    const lt=r.loan_type||'ไม่ระบุ';const k=crossKey(lt,r.bank);
     if(!crossSummary[k])crossSummary[k]={lt,bank:r.bank,draw:0,repay:0,interest:0};
     if(r.txn_type==='draw')crossSummary[k].draw+=+r.amount;
     else if(r.txn_type==='repay')crossSummary[k].repay+=+r.amount;
@@ -1160,10 +1190,29 @@ function LoanPage(){
   });
   const loanTypes=Object.keys(typeSummary);
 
-  const totalDraw=records.filter(r=>r.txn_type==='draw').reduce((s,r)=>s+r.amount,0);
-  const totalRepay=records.filter(r=>r.txn_type==='repay').reduce((s,r)=>s+r.amount,0);
-  const totalInterest=records.filter(r=>r.txn_type==='interest').reduce((s,r)=>s+r.amount,0);
+  const totalDraw=actualRecs.filter(r=>r.txn_type==='draw').reduce((s,r)=>s+r.amount,0);
+  const totalRepay=actualRecs.filter(r=>r.txn_type==='repay').reduce((s,r)=>s+r.amount,0);
+  const totalInterest=actualRecs.filter(r=>r.txn_type==='interest').reduce((s,r)=>s+r.amount,0);
   const totalBalance=totalDraw-totalRepay;
+
+  // Monthly summary (actual + budget side by side)
+  const monthSet=new Set();
+  records.forEach(r=>{if(r.date)monthSet.add(r.date.slice(0,7));});
+  const allMonths=[...monthSet].sort();
+  let runBal=0;
+  const monthlySummary=allMonths.map(m=>{
+    const mA=actualRecs.filter(r=>r.date?.startsWith(m));
+    const mB=budgetRecs.filter(r=>r.date?.startsWith(m));
+    const sum=(arr,t)=>arr.filter(r=>r.txn_type===t).reduce((s,r)=>s+(+r.amount||0),0);
+    const openBal=runBal;
+    const drawA=sum(mA,'draw'),repayA=sum(mA,'repay'),intA=sum(mA,'interest');
+    const drawB=sum(mB,'draw'),repayB=sum(mB,'repay'),intB=sum(mB,'interest');
+    runBal=openBal+drawA-repayA;
+    return{month:m,openBal,drawA,repayA,intA,drawB,repayB,intB,closeBal:runBal};
+  });
+  const todayStr=new Date().toLocaleDateString('th-TH',{year:'numeric',month:'long',day:'numeric'});
+  const visMonths=monthlySummary.filter(m=>m.month.startsWith(mFilterYear)&&(!mFilterMonth||m.month.slice(5,7)===String(mFilterMonth).padStart(2,'0')));
+  const budTotal=(type)=>budgetRecs.filter(r=>r.txn_type===type&&r.date?.startsWith(mFilterYear)&&(!mFilterMonth||r.date?.slice(5,7)===String(mFilterMonth).padStart(2,'0'))).reduce((s,r)=>s+r.amount,0);
 
   return(
     <div style={{padding:24,maxWidth:1400,margin:'0 auto'}}>
@@ -1179,176 +1228,258 @@ function LoanPage(){
       </div>
 
       <ReadOnlyBanner/>
-      {/* Summary KPIs */}
-      <div className="kpi-grid" style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:20}}>
-        <KpiCard label="เบิกกู้รวม" value={`฿${fmtM(totalDraw)}`} icon="💳" borderColor="#0891b2" bg="#f0f9ff"/>
-        <KpiCard label="ชำระคืนรวม" value={`฿${fmtM(totalRepay)}`} icon="💚" borderColor="#16a34a" bg="#f0fdf4"/>
-        <KpiCard label="ยอดคงค้าง" value={`฿${fmtM(totalBalance)}`} icon="🏦" borderColor="#7c3aed" bg="#faf5ff"/>
+      {msg&&<div style={{marginBottom:10,fontSize:13,padding:'8px 12px',background:'#f0fdf4',borderRadius:8,border:'1px solid #bbf7d0'}}>{msg}</div>}
+
+      {/* KPI Strip */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(4,1fr)',gap:12,marginBottom:16}}>
+        <KpiCard label="เบิกกู้จริงรวม" value={`฿${fmtM(totalDraw)}`} icon="💳" borderColor="#0891b2" bg="#f0f9ff"/>
+        <KpiCard label="ชำระคืนจริงรวม" value={`฿${fmtM(totalRepay)}`} icon="💚" borderColor="#16a34a" bg="#f0fdf4"/>
+        <KpiCard label={`ยอดคงค้าง ณ ${todayStr}`} value={`฿${fmtM(totalBalance)}`} icon="🏦" borderColor="#7c3aed" bg="#faf5ff"/>
         <KpiCard label="ดอกเบี้ยจ่ายรวม" value={`฿${fmtM(totalInterest)}`} icon="📊" borderColor="#dc2626" bg="#fff1f2"/>
       </div>
 
-      {/* Bank Summary */}
-      {Object.keys(bankSummary).length>0&&(
-        <div className="card" style={{marginBottom:16,overflowX:'auto'}}>
-          <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>สรุปตามธนาคาร</h3>
+      {/* Tab bar */}
+      <div style={{display:'flex',gap:4,background:'#f5f3ff',padding:4,borderRadius:12,width:'fit-content',marginBottom:20}}>
+        {[['monthly','📅 สรุปรายเดือน'],['summary','📊 สรุปภาพรวม'],['records','📋 รายการทั้งหมด']].map(([v,l])=>(
+          <button key={v} onClick={()=>setLoanTab(v)} style={{padding:'8px 18px',borderRadius:8,fontSize:13,fontWeight:600,cursor:'pointer',border:'none',
+            background:loanTab===v?'#fff':'transparent',color:loanTab===v?'#7c3aed':'#6b7280',
+            boxShadow:loanTab===v?'0 1px 3px rgba(0,0,0,.1)':'none'}}>{l}</button>
+        ))}
+      </div>
+
+      {/* ===== TAB: สรุปรายเดือน ===== */}
+      {loanTab==='monthly'&&(
+        <div className="card" style={{overflowX:'auto',marginBottom:16}}>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12,flexWrap:'wrap',gap:8}}>
+            <h3 style={{fontWeight:700,fontSize:15,color:'#4c1d95',margin:0}}>📅 ยอดเงินกู้คงเหลือรายเดือน — จริง vs ประมาณการ</h3>
+            <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+              <span style={{fontSize:12,color:'#64748b',fontWeight:600}}>กรอง:</span>
+              <select value={mFilterYear} onChange={e=>{setMFilterYear(e.target.value);setMFilterMonth('');}}
+                style={{fontSize:13,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db',width:90}}>
+                {[...new Set(monthlySummary.map(m=>m.month.slice(0,4)).concat([new Date().getFullYear().toString()]))].sort().map(y=><option key={y}>{y}</option>)}
+              </select>
+              <select value={mFilterMonth} onChange={e=>setMFilterMonth(e.target.value)}
+                style={{fontSize:13,padding:'4px 8px',borderRadius:6,border:'1px solid #d1d5db',width:110}}>
+                <option value="">ทุกเดือน</option>
+                {MONTHS_TH.map((m,i)=><option key={i+1} value={i+1}>{m}</option>)}
+              </select>
+              {mFilterMonth&&<button onClick={()=>setMFilterMonth('')} style={{fontSize:11,padding:'3px 8px',borderRadius:6,background:'#f1f5f9',border:'1px solid #e2e8f0',cursor:'pointer'}}>✕ ล้าง</button>}
+            </div>
+          </div>
+          {visMonths.length===0?(
+            <div style={{textAlign:'center',padding:32,color:'#94a3b8'}}>ไม่มีข้อมูลสำหรับช่วงเวลาที่เลือก</div>
+          ):(
+            <table>
+              <thead>
+                <tr>
+                  <th rowSpan={2}>เดือน</th>
+                  <th rowSpan={2} style={{textAlign:'right',background:'#e0e7ff',color:'#3730a3'}}>ยอดต้นเดือน</th>
+                  <th colSpan={2} style={{textAlign:'center',background:'#e0f2fe',color:'#0369a1'}}>เบิกกู้ 💳</th>
+                  <th colSpan={2} style={{textAlign:'center',background:'#dcfce7',color:'#166534'}}>ชำระคืน 💚</th>
+                  <th colSpan={2} style={{textAlign:'center',background:'#fee2e2',color:'#991b1b'}}>ดอกเบี้ย 🔴</th>
+                  <th rowSpan={2} style={{textAlign:'right',background:'#fef9c3',color:'#854d0e',fontWeight:800}}>ยอดสิ้นเดือน</th>
+                </tr>
+                <tr>
+                  <th style={{textAlign:'right',background:'#e0f2fe',color:'#0369a1',fontSize:11}}>จริง</th>
+                  <th style={{textAlign:'right',background:'#f0f9ff',color:'#0891b2',fontSize:11}}>ประมาณการ</th>
+                  <th style={{textAlign:'right',background:'#dcfce7',color:'#166534',fontSize:11}}>จริง</th>
+                  <th style={{textAlign:'right',background:'#f0fdf4',color:'#16a34a',fontSize:11}}>ประมาณการ</th>
+                  <th style={{textAlign:'right',background:'#fee2e2',color:'#991b1b',fontSize:11}}>จริง</th>
+                  <th style={{textAlign:'right',background:'#fff1f2',color:'#dc2626',fontSize:11}}>ประมาณการ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {visMonths.map(m=>{
+                  const mi=parseInt(m.month.slice(5),10)-1;
+                  const mLabel=MONTHS_TH[mi]+' '+(parseInt(m.month.slice(0,4))+543);
+                  return(<tr key={m.month} style={{background:m.closeBal<0?'#fff1f2':''}}>
+                    <td style={{fontWeight:700}}>{mLabel}</td>
+                    <td style={{textAlign:'right',color:'#3730a3',fontWeight:600,background:'#f0f0ff'}}>฿{fmt(m.openBal)}</td>
+                    <td style={{textAlign:'right',color:'#0369a1',fontWeight:600,background:'#e0f2fe'}}>
+                      {m.drawA?<span style={{cursor:'pointer',textDecoration:'underline dotted'}} onClick={()=>navTo('cashflow',{cfTab:'daily'})} title="ดูใน CF รายวัน">฿{fmt(m.drawA)}</span>:'-'}
+                    </td>
+                    <td style={{textAlign:'right',color:'#0891b2',background:'#f0f9ff'}}>
+                      {m.drawB?<span style={{cursor:'pointer',textDecoration:'underline dotted'}} onClick={()=>navTo('cashflow',{cfTab:'budget'})} title="ดูใน Budget CF">฿{fmt(m.drawB)}</span>:'-'}
+                    </td>
+                    <td style={{textAlign:'right',color:'#166534',fontWeight:600,background:'#dcfce7'}}>
+                      {m.repayA?<span style={{cursor:'pointer',textDecoration:'underline dotted'}} onClick={()=>navTo('cashflow',{cfTab:'daily'})} title="ดูใน CF รายวัน">฿{fmt(m.repayA)}</span>:'-'}
+                    </td>
+                    <td style={{textAlign:'right',color:'#16a34a',background:'#f0fdf4'}}>
+                      {m.repayB?<span style={{cursor:'pointer',textDecoration:'underline dotted'}} onClick={()=>navTo('cashflow',{cfTab:'budget'})} title="ดูใน Budget CF">฿{fmt(m.repayB)}</span>:'-'}
+                    </td>
+                    <td style={{textAlign:'right',color:'#991b1b',fontWeight:600,background:'#fee2e2'}}>
+                      {m.intA?<span style={{cursor:'pointer',textDecoration:'underline dotted'}} onClick={()=>navTo('cashflow',{cfTab:'daily'})} title="ดูใน CF รายวัน">฿{fmt(m.intA)}</span>:'-'}
+                    </td>
+                    <td style={{textAlign:'right',color:'#dc2626',background:'#fff1f2'}}>
+                      {m.intB?<span style={{cursor:'pointer',textDecoration:'underline dotted'}} onClick={()=>navTo('cashflow',{cfTab:'budget'})} title="ดูใน Budget CF">฿{fmt(m.intB)}</span>:'-'}
+                    </td>
+                    <td style={{textAlign:'right',fontWeight:800,fontSize:14,background:m.closeBal>=0?'#f0fdf4':'#fff1f2',color:m.closeBal>=0?'#16a34a':'#dc2626'}}>฿{fmt(m.closeBal)}</td>
+                  </tr>);
+                })}
+              </tbody>
+              <tfoot>
+                <tr style={{background:'#f5f3ff',fontWeight:700}}>
+                  <td>รวม</td>
+                  <td style={{textAlign:'right',color:'#3730a3',background:'#f0f0ff'}}>-</td>
+                  <td style={{textAlign:'right',color:'#0369a1',background:'#e0f2fe'}}>฿{fmt(visMonths.reduce((s,m)=>s+m.drawA,0))}</td>
+                  <td style={{textAlign:'right',color:'#0891b2',background:'#f0f9ff'}}>฿{fmt(budTotal('draw'))}</td>
+                  <td style={{textAlign:'right',color:'#166534',background:'#dcfce7'}}>฿{fmt(visMonths.reduce((s,m)=>s+m.repayA,0))}</td>
+                  <td style={{textAlign:'right',color:'#16a34a',background:'#f0fdf4'}}>฿{fmt(budTotal('repay'))}</td>
+                  <td style={{textAlign:'right',color:'#991b1b',background:'#fee2e2'}}>฿{fmt(visMonths.reduce((s,m)=>s+m.intA,0))}</td>
+                  <td style={{textAlign:'right',color:'#dc2626',background:'#fff1f2'}}>฿{fmt(budTotal('interest'))}</td>
+                  <td style={{textAlign:'right',color:'#7c3aed',fontWeight:800}}>฿{fmt(visMonths.length>0?visMonths[visMonths.length-1].closeBal:0)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          )}
+          <div style={{marginTop:8,fontSize:11,color:'#94a3b8'}}>💡 คลิกตัวเลขสีใต้เส้น → ไปที่หน้า CF ที่เกี่ยวข้อง</div>
+        </div>
+      )}
+
+      {/* ===== TAB: สรุปภาพรวม ===== */}
+      {loanTab==='summary'&&<>
+        {Object.keys(bankSummary).length>0&&(
+          <div className="card" style={{marginBottom:16,overflowX:'auto'}}>
+            <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>สรุปตามธนาคาร (ยอดจริง)</h3>
+            <table>
+              <thead><tr><th>ธนาคาร</th><th style={{textAlign:'right'}}>เบิกกู้</th><th style={{textAlign:'right'}}>ชำระคืน</th><th style={{textAlign:'right'}}>ดอกเบี้ยจ่าย</th><th style={{textAlign:'right'}}>ยอดคงค้าง</th></tr></thead>
+              <tbody>{Object.values(bankSummary).map(b=>(
+                <tr key={b.bank}>
+                  <td style={{fontWeight:600}}>{b.bank}</td>
+                  <td style={{textAlign:'right',color:'#0891b2',fontWeight:600}}>฿{fmt(b.draw)}</td>
+                  <td style={{textAlign:'right',color:'#16a34a',fontWeight:600}}>฿{fmt(b.repay)}</td>
+                  <td style={{textAlign:'right',color:'#dc2626',fontWeight:600}}>฿{fmt(b.interest)}</td>
+                  <td style={{textAlign:'right',color:'#7c3aed',fontWeight:700}}>฿{fmt(b.draw-b.repay)}</td>
+                </tr>
+              ))}</tbody>
+              <tfoot><tr>
+                <td>รวม</td>
+                <td style={{textAlign:'right',color:'#0891b2'}}>฿{fmt(totalDraw)}</td>
+                <td style={{textAlign:'right',color:'#16a34a'}}>฿{fmt(totalRepay)}</td>
+                <td style={{textAlign:'right',color:'#dc2626'}}>฿{fmt(totalInterest)}</td>
+                <td style={{textAlign:'right',color:'#7c3aed'}}>฿{fmt(totalBalance)}</td>
+              </tr></tfoot>
+            </table>
+          </div>
+        )}
+        {loanTypes.length>0&&(
+          <div className="resp-2col" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
+            <div className="card" style={{overflowX:'auto'}}>
+              <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>📋 สรุปตามประเภทวงเงิน</h3>
+              <table>
+                <thead><tr>
+                  <th>ประเภทวงเงิน</th>
+                  <th style={{textAlign:'right',color:'#0891b2'}}>เบิกกู้</th>
+                  <th style={{textAlign:'right',color:'#16a34a'}}>ชำระคืน</th>
+                  <th style={{textAlign:'right',color:'#dc2626'}}>ดอกเบี้ย</th>
+                  <th style={{textAlign:'right',color:'#7c3aed',fontWeight:800}}>คงค้าง</th>
+                </tr></thead>
+                <tbody>{loanTypes.map(lt=>{
+                  const t=typeSummary[lt];const bal=t.draw-t.repay;const isPn=lt.includes('P/N');
+                  return(<tr key={lt}>
+                    <td><span style={{display:'inline-block',padding:'2px 8px',borderRadius:6,fontSize:12,fontWeight:700,background:isPn?'#e0f2fe':'#fef9c3',color:isPn?'#0369a1':'#854d0e'}}>{isPn?'📄 P/N':'🏦 Loan'}</span><span style={{fontSize:12,color:'#64748b',marginLeft:6}}>{lt}</span></td>
+                    <td style={{textAlign:'right',color:'#0891b2',fontWeight:600}}>฿{fmt(t.draw)}</td>
+                    <td style={{textAlign:'right',color:'#16a34a',fontWeight:600}}>฿{fmt(t.repay)}</td>
+                    <td style={{textAlign:'right',color:'#dc2626',fontWeight:600}}>฿{fmt(t.interest)}</td>
+                    <td style={{textAlign:'right',color:bal>0?'#7c3aed':'#16a34a',fontWeight:800}}>฿{fmt(bal)}</td>
+                  </tr>);
+                })}</tbody>
+              </table>
+            </div>
+            <div className="card" style={{overflowX:'auto'}}>
+              <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>🔀 สรุปแยก ประเภท × ธนาคาร</h3>
+              <table>
+                <thead><tr><th>ประเภท</th><th>ธนาคาร</th><th style={{textAlign:'right',color:'#0891b2'}}>เบิกกู้</th><th style={{textAlign:'right',color:'#16a34a'}}>ชำระคืน</th><th style={{textAlign:'right',color:'#7c3aed',fontWeight:800}}>คงค้าง</th></tr></thead>
+                <tbody>{loanTypes.map(lt=>{
+                  const rows=Object.values(crossSummary).filter(c=>c.lt===lt);const isPn=lt.includes('P/N');
+                  return rows.map((c,idx)=>(<tr key={lt+c.bank}>
+                    {idx===0&&<td rowSpan={rows.length} style={{verticalAlign:'top',paddingTop:10}}><span style={{display:'inline-block',padding:'2px 8px',borderRadius:6,fontSize:11,fontWeight:700,background:isPn?'#e0f2fe':'#fef9c3',color:isPn?'#0369a1':'#854d0e'}}>{isPn?'📄 P/N':'🏦 Loan'}</span></td>}
+                    <td style={{fontSize:13}}>{c.bank}</td>
+                    <td style={{textAlign:'right',color:'#0891b2',fontSize:13}}>฿{fmt(c.draw)}</td>
+                    <td style={{textAlign:'right',color:'#16a34a',fontSize:13}}>฿{fmt(c.repay)}</td>
+                    <td style={{textAlign:'right',color:c.draw-c.repay>0?'#7c3aed':'#16a34a',fontWeight:700}}>฿{fmt(c.draw-c.repay)}</td>
+                  </tr>));
+                })}</tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </>}
+
+      {/* ===== TAB: รายการทั้งหมด ===== */}
+      {loanTab==='records'&&(
+        <div className="card" style={{overflowX:'auto'}}>
+          <div style={{display:'flex',gap:8,marginBottom:12,flexWrap:'wrap'}}>
+            <select value={filterBank} onChange={e=>setFilterBank(e.target.value)} style={{width:190}}>
+              <option value="">ทุกธนาคาร</option>{BANKS.map(b=><option key={b}>{b}</option>)}
+            </select>
+            <select value={filterType} onChange={e=>setFilterType(e.target.value)} style={{width:170}}>
+              <option value="">ทุกประเภทรายการ</option>
+              <option value="draw">เบิกกู้เงิน</option>
+              <option value="repay">ชำระคืน</option>
+              <option value="interest">ดอกเบี้ย</option>
+            </select>
+            <select value={filterSource} onChange={e=>setFilterSource(e.target.value)} style={{width:160}}>
+              <option value="">จริง + ประมาณการ</option>
+              <option value="actual">✅ จริงเท่านั้น</option>
+              <option value="budget">📋 ประมาณการเท่านั้น</option>
+            </select>
+          </div>
+          <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>รายการทั้งหมด ({filtered.length})</h3>
           <table>
-            <thead><tr><th>ธนาคาร</th><th style={{textAlign:'right'}}>เบิกกู้</th><th style={{textAlign:'right'}}>ชำระคืน</th><th style={{textAlign:'right'}}>ดอกเบี้ยจ่าย</th><th style={{textAlign:'right'}}>ยอดคงค้าง</th></tr></thead>
-            <tbody>{Object.values(bankSummary).map(b=>(
-              <tr key={b.bank}>
-                <td style={{fontWeight:600}}>{b.bank}</td>
-                <td style={{textAlign:'right',color:'#0891b2',fontWeight:600}}>฿{fmt(b.draw)}</td>
-                <td style={{textAlign:'right',color:'#16a34a',fontWeight:600}}>฿{fmt(b.repay)}</td>
-                <td style={{textAlign:'right',color:'#dc2626',fontWeight:600}}>฿{fmt(b.interest)}</td>
-                <td style={{textAlign:'right',color:'#7c3aed',fontWeight:700}}>฿{fmt(b.draw-b.repay)}</td>
-              </tr>
-            ))}</tbody>
-            <tfoot><tr>
-              <td>รวม</td>
-              <td style={{textAlign:'right',color:'#0891b2'}}>฿{fmt(totalDraw)}</td>
-              <td style={{textAlign:'right',color:'#16a34a'}}>฿{fmt(totalRepay)}</td>
-              <td style={{textAlign:'right',color:'#dc2626'}}>฿{fmt(totalInterest)}</td>
-              <td style={{textAlign:'right',color:'#7c3aed'}}>฿{fmt(totalBalance)}</td>
-            </tr></tfoot>
+            <thead><tr>
+              <th>วันที่</th><th>ธนาคาร</th><th>ประเภทวงเงิน</th><th>รายการ</th><th>แหล่งข้อมูล</th>
+              <th style={{textAlign:'right'}}>จำนวนเงิน</th><th style={{textAlign:'right'}}>ดอกเบี้ย</th>
+              <th>ครบกำหนด</th><th>อ้างอิง</th><th>หมายเหตุ</th>{isAdm&&<th>ลบ</th>}
+            </tr></thead>
+            <tbody>{filtered.length===0?<tr><td colSpan={isAdm?11:10} style={{textAlign:'center',padding:32,color:'#94a3b8'}}>ไม่มีข้อมูล</td></tr>:
+              filtered.map(r=>{
+                const t=TXN_TYPES.find(x=>x.v===r.txn_type)||TXN_TYPES[0];
+                const isBud=(r.source||'actual')==='budget';
+                return<tr key={r.id} style={{background:isBud?'#f0f9ff':''}}>
+                  <td>{r.date}</td>
+                  <td style={{fontWeight:600}}>{r.bank}</td>
+                  <td style={{fontSize:11}}>{r.loan_type}</td>
+                  <td><span className="badge" style={{background:t.bg,color:t.color}}>{t.label}</span></td>
+                  <td>
+                    {isBud
+                      ?<span style={{fontSize:11,padding:'2px 8px',borderRadius:4,background:'#e0f2fe',color:'#0369a1',cursor:'pointer',fontWeight:600}} onClick={()=>navTo('cashflow',{cfTab:'budget'})}>📋 ประมาณการ</span>
+                      :<span style={{fontSize:11,padding:'2px 8px',borderRadius:4,background:'#dcfce7',color:'#166534',cursor:'pointer',fontWeight:600}} onClick={()=>navTo('cashflow',{cfTab:'daily'})}>✅ จริง</span>
+                    }
+                  </td>
+                  <td style={{textAlign:'right',fontWeight:700,color:t.color}}>฿{fmt(r.amount)}</td>
+                  <td style={{textAlign:'right'}}>{r.interest_rate?r.interest_rate+'%':'-'}</td>
+                  <td style={{color:r.due_date&&new Date(r.due_date)<new Date()?'#dc2626':'inherit'}}>{r.due_date||'-'}</td>
+                  <td style={{color:'#64748b',fontSize:12}}>{r.ref||'-'}</td>
+                  <td style={{maxWidth:140,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:12}}>{r.note||'-'}</td>
+                  {isAdm&&<td><button onClick={()=>delRecord(r.id)} style={{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:16}}>🗑</button></td>}
+                </tr>;
+              })
+            }</tbody>
           </table>
         </div>
       )}
 
-      {/* Type Summary */}
-      {loanTypes.length>0&&(
-        <div className="resp-2col" style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:16,marginBottom:16}}>
-          {/* สรุปตามประเภทวงเงิน */}
-          <div className="card" style={{overflowX:'auto'}}>
-            <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>📋 สรุปตามประเภทวงเงิน (P/N vs Loan)</h3>
-            <table>
-              <thead><tr>
-                <th>ประเภทวงเงิน</th>
-                <th style={{textAlign:'right',color:'#0891b2'}}>เบิกกู้</th>
-                <th style={{textAlign:'right',color:'#16a34a'}}>ชำระคืน</th>
-                <th style={{textAlign:'right',color:'#dc2626'}}>ดอกเบี้ย</th>
-                <th style={{textAlign:'right',color:'#7c3aed',fontWeight:800}}>คงค้าง</th>
-              </tr></thead>
-              <tbody>
-                {loanTypes.map(lt=>{
-                  const t=typeSummary[lt];
-                  const bal=t.draw-t.repay;
-                  const isPn=lt.includes('P/N');
-                  return(
-                    <tr key={lt}>
-                      <td>
-                        <span style={{display:'inline-block',padding:'2px 8px',borderRadius:6,fontSize:12,fontWeight:700,
-                          background:isPn?'#e0f2fe':'#fef9c3',color:isPn?'#0369a1':'#854d0e'}}>
-                          {isPn?'📄 P/N':'🏦 Loan'}
-                        </span>
-                        <span style={{fontSize:12,color:'#64748b',marginLeft:6}}>{lt}</span>
-                      </td>
-                      <td style={{textAlign:'right',color:'#0891b2',fontWeight:600}}>฿{fmt(t.draw)}</td>
-                      <td style={{textAlign:'right',color:'#16a34a',fontWeight:600}}>฿{fmt(t.repay)}</td>
-                      <td style={{textAlign:'right',color:'#dc2626',fontWeight:600}}>฿{fmt(t.interest)}</td>
-                      <td style={{textAlign:'right',color:bal>0?'#7c3aed':'#16a34a',fontWeight:800,fontSize:14}}>฿{fmt(bal)}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-              <tfoot><tr>
-                <td style={{fontWeight:700}}>รวมทั้งหมด</td>
-                <td style={{textAlign:'right',color:'#0891b2',fontWeight:700}}>฿{fmt(totalDraw)}</td>
-                <td style={{textAlign:'right',color:'#16a34a',fontWeight:700}}>฿{fmt(totalRepay)}</td>
-                <td style={{textAlign:'right',color:'#dc2626',fontWeight:700}}>฿{fmt(totalInterest)}</td>
-                <td style={{textAlign:'right',color:'#7c3aed',fontWeight:800}}>฿{fmt(totalBalance)}</td>
-              </tr></tfoot>
-            </table>
-          </div>
-
-          {/* สรุป P/N x ธนาคาร */}
-          <div className="card" style={{overflowX:'auto'}}>
-            <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>🔀 สรุปแยก ประเภท × ธนาคาร</h3>
-            <table>
-              <thead><tr>
-                <th>ประเภท</th>
-                <th>ธนาคาร</th>
-                <th style={{textAlign:'right',color:'#0891b2'}}>เบิกกู้</th>
-                <th style={{textAlign:'right',color:'#16a34a'}}>ชำระคืน</th>
-                <th style={{textAlign:'right',color:'#7c3aed',fontWeight:800}}>คงค้าง</th>
-              </tr></thead>
-              <tbody>
-                {loanTypes.map(lt=>{
-                  const rows=Object.values(crossSummary).filter(c=>c.lt===lt);
-                  const isPn=lt.includes('P/N');
-                  return rows.map((c,idx)=>(
-                    <tr key={lt+c.bank}>
-                      {idx===0&&<td rowSpan={rows.length} style={{verticalAlign:'top',paddingTop:10}}>
-                        <span style={{display:'inline-block',padding:'2px 8px',borderRadius:6,fontSize:11,fontWeight:700,
-                          background:isPn?'#e0f2fe':'#fef9c3',color:isPn?'#0369a1':'#854d0e'}}>
-                          {isPn?'📄 P/N':'🏦 Loan'}
-                        </span>
-                      </td>}
-                      <td style={{fontSize:13}}>{c.bank}</td>
-                      <td style={{textAlign:'right',color:'#0891b2',fontSize:13}}>฿{fmt(c.draw)}</td>
-                      <td style={{textAlign:'right',color:'#16a34a',fontSize:13}}>฿{fmt(c.repay)}</td>
-                      <td style={{textAlign:'right',color:c.draw-c.repay>0?'#7c3aed':'#16a34a',fontWeight:700}}>฿{fmt(c.draw-c.repay)}</td>
-                    </tr>
-                  ));
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Filter */}
-      <div style={{display:'flex',gap:8,marginBottom:12}}>
-        <select value={filterBank} onChange={e=>setFilterBank(e.target.value)} style={{width:200}}>
-          <option value="">ทุกธนาคาร</option>{BANKS.map(b=><option key={b}>{b}</option>)}
-        </select>
-        <select value={filterType} onChange={e=>setFilterType(e.target.value)} style={{width:180}}>
-          <option value="">ทุกประเภท</option>
-          <option value="draw">เบิกกู้เงิน</option>
-          <option value="repay">ชำระคืน</option>
-          <option value="interest">ดอกเบี้ย</option>
-        </select>
-      </div>
-
-      {/* Records Table */}
-      <div className="card" style={{overflowX:'auto'}}>
-        <h3 style={{fontWeight:700,fontSize:14,color:'#4c1d95',marginBottom:12}}>รายการทั้งหมด ({filtered.length})</h3>
-        {msg&&<div style={{marginBottom:10,fontSize:13}}>{msg}</div>}
-        <table>
-          <thead><tr>
-            <th>วันที่</th><th>ธนาคาร</th><th>ประเภทวงเงิน</th><th>รายการ</th>
-            <th style={{textAlign:'right'}}>จำนวนเงิน</th><th style={{textAlign:'right'}}>อัตราดอกเบี้ย</th>
-            <th>วันครบกำหนด</th><th>เลขที่อ้างอิง</th><th>หมายเหตุ</th><th>ลบ</th>
-          </tr></thead>
-          <tbody>{filtered.length===0?<tr><td colSpan={10} style={{textAlign:'center',padding:32,color:'#94a3b8'}}>ไม่มีข้อมูล</td></tr>:
-            filtered.map(r=>{
-              const t=TXN_TYPES.find(x=>x.v===r.txn_type)||TXN_TYPES[0];
-              return<tr key={r.id}>
-                <td>{r.date}</td>
-                <td style={{fontWeight:600}}>{r.bank}</td>
-                <td style={{fontSize:11}}>{r.loan_type}</td>
-                <td><span className="badge" style={{background:t.bg,color:t.color}}>{t.label}</span></td>
-                <td style={{textAlign:'right',fontWeight:700,color:t.color}}>฿{fmt(r.amount)}</td>
-                <td style={{textAlign:'right'}}>{r.interest_rate?r.interest_rate+'%':'-'}</td>
-                <td style={{color:r.due_date&&new Date(r.due_date)<new Date()?'#dc2626':'inherit'}}>{r.due_date||'-'}</td>
-                <td style={{color:'#64748b',fontSize:12}}>{r.ref||'-'}</td>
-                <td style={{maxWidth:160,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',fontSize:12}}>{r.note||'-'}</td>
-                {isAdm&&<td><button onClick={()=>delRecord(r.id)} style={{background:'none',border:'none',cursor:'pointer',color:'#ef4444',fontSize:16}}>🗑</button></td>}
-              </tr>;
-            })
-          }</tbody>
-        </table>
-      </div>
-
       {/* Form Modal */}
       {showForm&&(
-        <Modal title="บันทึกรายการเงินกู้" onClose={()=>setShowForm(false)} width={560}>
+        <Modal title="บันทึกรายการเงินกู้" onClose={()=>setShowForm(false)} width={580}>
           <form onSubmit={save}>
-            {/* Transaction Type Selector */}
-            <div style={{marginBottom:16}}>
-              <label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:8}}>ประเภทรายการ</label>
+            <div style={{marginBottom:12,display:'flex',gap:8,alignItems:'center'}}>
+              <span style={{fontSize:12,fontWeight:600,color:'#374151'}}>ประเภทการบันทึก:</span>
+              {[['actual','✅ บันทึกจริง','#166534','#f0fdf4','#bbf7d0'],['budget','📋 ประมาณการ','#0369a1','#f0f9ff','#bae6fd']].map(([v,l,c,bg,bd])=>(
+                <button key={v} type="button" onClick={()=>setForm(f=>({...f,source:v}))}
+                  style={{padding:'8px 16px',borderRadius:8,border:`2px solid ${form.source===v?c:bd}`,background:form.source===v?bg:'#fff',color:form.source===v?c:'#374151',fontWeight:700,fontSize:12,cursor:'pointer'}}>
+                  {l}
+                </button>
+              ))}
+              <span style={{fontSize:11,color:'#94a3b8'}}>{form.source==='budget'?'→ จะลงใน Budget CF':'→ จะลงใน CF รายวัน'}</span>
+            </div>
+            <div style={{marginBottom:12}}>
+              <label style={{fontSize:12,fontWeight:600,display:'block',marginBottom:6}}>ประเภทรายการ</label>
               <div style={{display:'flex',gap:8}}>
                 {TXN_TYPES.map(t=>(
                   <button key={t.v} type="button" onClick={()=>setForm(f=>({...f,txn_type:t.v}))}
-                    style={{flex:1,padding:'10px 8px',borderRadius:8,border:`2px solid ${form.txn_type===t.v?t.color:'#e5e7eb'}`,background:form.txn_type===t.v?t.bg:'#fff',color:form.txn_type===t.v?t.color:'#374151',fontWeight:600,fontSize:12,cursor:'pointer'}}>
+                    style={{flex:1,padding:'8px',borderRadius:8,border:`2px solid ${form.txn_type===t.v?t.color:'#e5e7eb'}`,background:form.txn_type===t.v?t.bg:'#fff',color:form.txn_type===t.v?t.color:'#374151',fontWeight:600,fontSize:12,cursor:'pointer'}}>
                     {t.label}
                   </button>
                 ))}
@@ -1379,10 +1510,10 @@ function LoanPage(){
                 <input placeholder="หมายเหตุ" value={form.note} onChange={e=>setForm(f=>({...f,note:e.target.value}))}/></div>
             </div>
             {form.txn_type==='draw'&&form.amount&&form.interest_rate&&(
-              <div style={{background:'#f5f3ff',border:'1px solid #c4b5fd',borderRadius:8,padding:12,marginBottom:12,fontSize:13}}>
-                <div style={{fontWeight:600,color:'#4c1d95',marginBottom:4}}>💡 คำนวณดอกเบี้ยประมาณการ</div>
-                <div>ดอกเบี้ยต่อเดือน: <strong>฿{fmt(form.amount*form.interest_rate/100/12)}</strong></div>
-                <div>ดอกเบี้ยต่อปี: <strong>฿{fmt(form.amount*form.interest_rate/100)}</strong></div>
+              <div style={{background:'#f5f3ff',border:'1px solid #c4b5fd',borderRadius:8,padding:10,marginBottom:12,fontSize:13}}>
+                <strong style={{color:'#4c1d95'}}>💡 ดอกเบี้ยประมาณการ:</strong>
+                <span style={{marginLeft:8}}>เดือนละ ฿{fmt(form.amount*form.interest_rate/100/12)}</span>
+                <span style={{marginLeft:12}}>ปีละ ฿{fmt(form.amount*form.interest_rate/100)}</span>
               </div>
             )}
             <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
@@ -1592,13 +1723,15 @@ function DailyCashFlow(){
   const curUser=React.useContext(UserCtx);
   const isAdm=isAdmin(curUser);
   const {rates:fxRates,source:fxSource,loading:fxLoading}=useFxRates();
+  const {cfTabHint,clearCfTabHint}=React.useContext(NavCtx);
+  const [viewTab,setViewTab]=useState('daily');
+  React.useEffect(()=>{if(cfTabHint){setViewTab(cfTabHint);clearCfTabHint();}},[ ]);
   const [dailyPlan,setDailyPlan]=useState(()=>ls.get('daily_cashflow',[]));
   // ยอดยกมาเริ่มต้น (ต้นปี/ต้นงวด) — ผู้ใช้กำหนดได้
   const [openingYear,setOpeningYear]=useState(()=>ls.get('cf_opening_year',0));
   const [editOpening,setEditOpening]=useState(false);
   const [openingInput,setOpeningInput]=useState('');
   const [form,setForm]=useState({date:today(),type:'inflow',category:'รายรับลูกค้า',amount:'',bank:BANKS[0],desc:'',ref:'',currency:'THB',fxRate:1,amountOrig:''});
-  const [viewTab,setViewTab]=useState('daily'); // daily | monthly | yearly | budget
   const [filterMonth,setFilterMonth]=useState('');
   const [filterYear,setFilterYear]=useState(new Date().getFullYear().toString());
   // Budget cashflow state
@@ -3301,7 +3434,11 @@ function Layout({user,onLogout}){
   const allowed=MENU.filter(m=>!m.admin||user.role==='admin');
   const curMenu=MENU.find(m=>m.id===page)||MENU[0];
 
-  function navTo(id){setPage(id);setMobOpen(false);}
+  const [cfTabHint,setCfTabHint]=useState('');
+  function navTo(id,hint){
+    if(hint?.cfTab)setCfTabHint(hint.cfTab);
+    setPage(id);setMobOpen(false);
+  }
 
   return(
     <div style={{display:'flex',height:'100vh',overflow:'hidden',flexDirection:'column'}}>
@@ -3316,6 +3453,7 @@ function Layout({user,onLogout}){
         <button onClick={onLogout} style={{background:'none',border:'none',color:'#c4b5fd',fontSize:18,cursor:'pointer'}}>🚪</button>
       </div>
 
+      <NavCtx.Provider value={{navTo,cfTabHint,clearCfTabHint:()=>setCfTabHint('')}}>
       <UserCtx.Provider value={user}>
     <div style={{display:'flex',flex:1,overflow:'hidden',position:'relative'}}>
         {/* Overlay for mobile drawer */}
@@ -3365,6 +3503,7 @@ function Layout({user,onLogout}){
         </main>
       </div>
     </UserCtx.Provider>
+    </NavCtx.Provider>
     </div>
   );
 }
